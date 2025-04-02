@@ -12,7 +12,7 @@ jobs:
       - name: Run Codacy Analysis CLI
         uses: codacy/codacy-analysis-cli-action@master
         with:
-          directory: src
+          directory: ${{github.workspace}}/src
           tool: clang-tidy
           project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
           upload: true
