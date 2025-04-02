@@ -48,13 +48,14 @@ const char* REGNAME[32] = {
 };
 
 const char* INSTNAME[]{
-    "lui",  "auipc", "jal",   "jalr",  "beq",   "bne",  "blt",  "bge",  "bltu",
-    "bgeu", "lb",    "lh",    "lw",    "ld",    "lbu",  "lhu",  "sb",   "sh",
-    "sw",   "sd",    "addi",  "slti",  "sltiu", "xori", "ori",  "andi", "slli",
-    "srli", "srai",  "add",   "sub",   "sll",   "slt",  "sltu", "xor",  "srl",
-    "sra",  "or",    "and",   "ecall", "addiw", "mul",  "mulh", "div",  "rem",
-    "lwu",  "slliw", "srliw", "sraiw", "addw",  "subw", "sllw", "srlw", "sraw",
-};
+    "lui",   "auipc",  "jal",    "jalr",  "beq",  "bne",  "blt",   "bge",
+    "bltu",  "bgeu",   "lb",     "lh",    "lw",   "ld",   "lbu",   "lhu",
+    "sb",    "sh",     "sw",     "sd",    "addi", "slti", "sltiu", "xori",
+    "ori",   "andi",   "slli",   "srli",  "srai", "add",  "sub",   "sll",
+    "slt",   "sltu",   "xor",    "srl",   "sra",  "or",   "and",   "ecall",
+    "addiw", "mul",    "mulh",   "div",   "rem",  "lwu",  "slliw", "srliw",
+    "sraiw", "addw",   "subw",   "sllw",  "srlw", "sraw", "fmadd", "fmaddu",
+    "fmsub", "fmsubu", "fnmadd", "fnmsub"};
 }  // namespace RISCV
 
 using namespace RISCV;
@@ -169,8 +170,8 @@ void Simulator::fetch() {
     this->panic("Illegal PC 0x%x!\n", this->pc);
   }
 
-  uint32_t inst = this->memory->getInt(this->pc);
-  uint32_t len = 4;
+  const uint32_t inst = this->memory->getInt(this->pc);
+  constexpr uint32_t len = 4;
 
   if (this->verbose) {
     printf("Fetched instruction 0x%.8x at address 0x%llx\n", inst, this->pc);
@@ -200,42 +201,131 @@ void Simulator::decode() {
     return;
   }
 
-  std::string instname = "";
-  std::string inststr = "";
-  std::string deststr, op1str, op2str, offsetstr;
-  Inst insttype = Inst::UNKNOWN;
-  uint32_t inst = this->fReg.inst;
-  int32_t op1 = 0, op2 = 0, offset = 0;  // op1, op2 and offset are values
-  RegId dest = 0, reg1 = -1, reg2 = -1;  // reg1 and reg2 are operands
+  std::string instname;
+  std::string inststr;
+  std::string deststr;
+  std::string op1str;
+  std::string op2str;
+  std::string op3str;
+  std::string offsetstr;
+  Inst insttype = UNKNOWN;
+  const uint32_t inst = this->fReg.inst;
+
+  // True values
+  int32_t op1 = 0;
+  int32_t op2 = 0;
+  int32_t op3 = 0;     // For FMA instructions
+  int32_t offset = 0;  // op1, op2 and offset are values
+
+  // Register id
+  RegId dest = 0;
+  RegId reg1 = -1;
+  RegId reg2 = -1;  // reg1 and reg2 are operands
+  RegId reg3 = 01;  // For FMA instructions
 
   // Reg for 32bit instructions
   if (this->fReg.len == 4)  // 32 bit instruction
   {
-    uint32_t opcode = inst & 0x7F;
-    uint32_t funct3 = (inst >> 12) & 0x7;
-    uint32_t funct7 = (inst >> 25) & 0x7F;
-    RegId rd = (inst >> 7) & 0x1F;
-    RegId rs1 = (inst >> 15) & 0x1F;
-    RegId rs2 = (inst >> 20) & 0x1F;
-    int32_t imm_i = int32_t(inst) >> 20;
-    int32_t imm_s =
-        int32_t(((inst >> 7) & 0x1F) | ((inst >> 20) & 0xFE0)) << 20 >> 20;
-    int32_t imm_sb = int32_t(((inst >> 7) & 0x1E) | ((inst >> 20) & 0x7E0) |
+    const uint32_t opcode = inst & 0x7F;
+    const uint32_t funct3 = (inst >> 12) & 0x7;
+    const uint32_t funct7 = (inst >> 25) & 0x7F;
+    const RegId rd = (inst >> 7) & 0x1F;
+    const RegId rs1 = (inst >> 15) & 0x1F;
+    const RegId rs2 = (inst >> 20) & 0x1F;
+    const RegId rs3 = (inst >> 27) & 0x1F;  // For FMA instructions
+    const int32_t imm_i = static_cast<int32_t>(inst) >> 20;
+    const int32_t imm_s =
+        static_cast<int32_t>(((inst >> 7) & 0x1F) | ((inst >> 20) & 0xFE0))
+            << 20 >>
+        20;
+    const int32_t imm_sb =
+        static_cast<int32_t>(((inst >> 7) & 0x1E) | ((inst >> 20) & 0x7E0) |
                              ((inst << 4) & 0x800) | ((inst >> 19) & 0x1000))
-                         << 19 >>
-                     19;
-    int32_t imm_u = int32_t(inst) >> 12;
-    int32_t imm_uj = int32_t(((inst >> 21) & 0x3FF) | ((inst >> 10) & 0x400) |
+            << 19 >>
+        19;
+    const int32_t imm_u = static_cast<int32_t>(inst) >> 12;
+    const int32_t imm_uj =
+        static_cast<int32_t>(((inst >> 21) & 0x3FF) | ((inst >> 10) & 0x400) |
                              ((inst >> 1) & 0x7F800) | ((inst >> 12) & 0x80000))
-                         << 12 >>
-                     11;
+            << 12 >>
+        11;
 
     switch (opcode) {
+      case OP_FMA: {
+        op1 = this->reg[rs1];
+        op2 = this->reg[rs2];
+        op3 = this->reg[rs3];
+
+        reg1 = rs1;
+        reg2 = rs2;
+        reg3 = rs3;
+        dest = rd;
+
+        const uint32_t rm = (inst >> 12) & 0x7;
+        const uint32_t fmt = (inst >> 25) & 0x3;
+
+        switch (rm) {
+          case 0x0: {  // fmadd, fmaddu, fmsub, fmsubu
+            switch (fmt) {
+              case 0x0: {  // fmadd
+                instname = "fmadd";
+                insttype = FMADD;
+                break;
+              }
+              case 0x1: {  // fmaddu
+                instname = "fmaddu";
+                insttype = FMADDU;
+                break;
+              }
+              case 0x2: {  // fmsub
+                instname = "fmsub";
+                insttype = FMSUB;
+                break;
+              }
+              case 0x3: {  // fmsubu
+                instname = "fmsubu";
+                insttype = FMSUBU;
+                break;
+              }
+              default:;
+            }
+            break;
+          }
+          case 0x1: {  // fnmadd, fnmsub
+            switch (fmt) {
+              case 0x0: {  // fnmadd
+                instname = "fnmadd";
+                insttype = FNMADD;
+                break;
+              }
+              case 0x1: {  // fnmsub
+                instname = "fnmsub";
+                insttype = FNMSUB;
+                break;
+              }
+              default:;
+            }
+            break;
+          }
+          default:;
+        }
+
+        op1str = REGNAME[rs1];
+        op2str = REGNAME[rs2];
+        op3str = REGNAME[rs3];
+        deststr = REGNAME[rd];
+        inststr = instname + " " + deststr + "," + op1str + "," + op2str + "," +
+                  op3str;
+
+        break;
+      }
       case OP_REG:
         op1 = this->reg[rs1];
         op2 = this->reg[rs2];
+
         reg1 = rs1;
         reg2 = rs2;
+
         dest = rd;
         switch (funct3) {
           case 0x0:  // add, mul, sub
@@ -683,12 +773,14 @@ void Simulator::decode() {
   this->dRegNew.bubble = false;
   this->dRegNew.rs1 = reg1;
   this->dRegNew.rs2 = reg2;
+  this->dRegNew.rs3 = reg3;
   this->dRegNew.pc = this->fReg.pc;
   this->dRegNew.inst = insttype;
   this->dRegNew.predictedBranch = predictedBranch;
   this->dRegNew.dest = dest;
   this->dRegNew.op1 = op1;
   this->dRegNew.op2 = op2;
+  this->dRegNew.op3 = op3;
   this->dRegNew.offset = offset;
 }
 
@@ -714,15 +806,16 @@ void Simulator::excecute() {
 
   this->history.instCount++;
 
-  Inst inst = this->dReg.inst;
+  const Inst inst = this->dReg.inst;
   int32_t op1 = this->dReg.op1;
   int32_t op2 = this->dReg.op2;
+  int32_t op3 = this->dReg.op3;
   int32_t offset = this->dReg.offset;
   bool predictedBranch = this->dReg.predictedBranch;
 
   uint32_t dRegPC = this->dReg.pc;
   bool writeReg = false;
-  RegId destReg = this->dReg.dest;
+  const RegId destReg = this->dReg.dest;
   int32_t out = 0;
   bool writeMem = false;
   bool readMem = false;
@@ -731,6 +824,42 @@ void Simulator::excecute() {
   bool branch = false;
 
   switch (inst) {
+    case FMADD: {
+      writeReg = true;
+      out = op1 * op2 + op3;
+      this->history.cycleCount += 3;
+      break;
+    }
+    case FMADDU: {
+      writeReg = true;
+      out = op1 * op2 + op3;
+      this->history.cycleCount += 3;
+      break;
+    }
+    case FMSUB: {
+      writeReg = true;
+      out = op1 * op2 - op3;
+      this->history.cycleCount += 3;
+      break;
+    }
+    case FMSUBU: {
+      writeReg = true;
+      out = op1 * op2 - op3;
+      this->history.cycleCount += 3;
+      break;
+    }
+    case FNMADD: {
+      writeReg = true;
+      out = -(op1 * op2) + op3;
+      this->history.cycleCount += 3;
+      break;
+    }
+    case FNMSUB: {
+      writeReg = true;
+      out = -(op1 * op2) - op3;
+      this->history.cycleCount += 3;
+      break;
+    }
     case LUI:
       writeReg = true;
       out = offset << 12;
@@ -970,7 +1099,8 @@ void Simulator::excecute() {
     this->history.controlHazardCount++;
   }
   if (isReadMem(inst)) {
-    if (this->dRegNew.rs1 == destReg || this->dRegNew.rs2 == destReg) {
+    if (this->dRegNew.rs1 == destReg || this->dRegNew.rs2 == destReg ||
+        this->dRegNew.rs3 == destReg) {
       this->fRegNew.stall = 2;
       this->dRegNew.stall = 2;
       this->eRegNew.bubble = true;
@@ -996,6 +1126,14 @@ void Simulator::excecute() {
       this->history.dataHazardCount++;
       if (verbose)
         printf("  Forward Data %s to Decode op2\n", REGNAME[destReg]);
+    }
+    if (this->dRegNew.rs3 == destReg) {
+      this->dRegNew.op3 = out;
+      this->executeWBReg = destReg;
+      this->executeWriteBack = true;
+      this->history.dataHazardCount++;
+      if (verbose)
+        printf("  Forward Data %s to Decode op3\n", REGNAME[destReg]);
     }
   }
 
@@ -1136,10 +1274,23 @@ void Simulator::memoryAccess() {
           printf("  Forward Data %s to Decode op2\n", REGNAME[destReg]);
       }
     }
+    if (this->dRegNew.rs3 == destReg) {
+      // Avoid overwriting recent values
+      if (this->executeWriteBack == false ||
+          (this->executeWriteBack && this->executeWBReg != destReg)) {
+        this->dRegNew.op3 = out;
+        this->memoryWriteBack = true;
+        this->memoryWBReg = destReg;
+        this->history.dataHazardCount++;
+        if (verbose)
+          printf("  Forward Data %s to Decode op3\n", REGNAME[destReg]);
+      }
+    }
     // Corner case of forwarding mem load data to stalled decode reg
     if (this->dReg.stall) {
       if (this->dReg.rs1 == destReg) this->dReg.op1 = out;
       if (this->dReg.rs2 == destReg) this->dReg.op2 = out;
+      if (this->dReg.rs3 == destReg) this->dReg.op3 = out;
       this->memoryWriteBack = true;
       this->memoryWBReg = destReg;
       this->history.dataHazardCount++;
@@ -1207,6 +1358,22 @@ void Simulator::writeBack() {
           this->history.dataHazardCount++;
           if (verbose)
             printf("  Forward Data %s to Decode op2\n",
+                   REGNAME[this->mReg.destReg]);
+        }
+      }
+    }
+    if (this->dRegNew.rs3 == this->mReg.destReg) {
+      // Avoid overwriting recent data
+      if (!this->executeWriteBack ||
+          (this->executeWriteBack &&
+           this->executeWBReg != this->mReg.destReg)) {
+        if (!this->memoryWriteBack ||
+            (this->memoryWriteBack &&
+             this->memoryWBReg != this->mReg.destReg)) {
+          this->dRegNew.op3 = this->mReg.out;
+          this->history.dataHazardCount++;
+          if (verbose)
+            printf("  Forward Data %s to Decode op3\n",
                    REGNAME[this->mReg.destReg]);
         }
       }

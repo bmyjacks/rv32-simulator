@@ -119,6 +119,12 @@ enum Inst {
   SLLW = 51,
   SRLW = 52,
   SRAW = 53,
+  FMADD,
+  FMADDU,
+  FMSUB,
+  FMSUBU,
+  FNMADD,
+  FNMSUB,
   UNKNOWN = -1,
 };
 
@@ -137,6 +143,7 @@ const int OP_JAL = 0x6F;
 const int OP_JALR = 0x67;
 const int OP_IMM32 = 0x1B;
 const int OP_32 = 0x3B;
+constexpr int32_t OP_FMA = 0x0B;  // FMA opcode
 
 inline bool isBranch(Inst inst) {
   if (inst == BEQ || inst == BNE || inst == BLT || inst == BGE ||
@@ -202,12 +209,13 @@ class Simulator {
     // Control Signals
     bool bubble;
     uint32_t stall;
-    RISCV::RegId rs1, rs2;
+    RISCV::RegId rs1, rs2, rs3;
 
     uint32_t pc;
     RISCV::Inst inst;
     int32_t op1;
     int32_t op2;
+    int32_t op3;
     RISCV::RegId dest;
     int32_t offset;
     bool predictedBranch;
