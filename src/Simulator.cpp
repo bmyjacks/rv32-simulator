@@ -69,7 +69,7 @@ Simulator::Simulator(MemoryManager* memory, BranchPredictor* predictor) {
   }
 }
 
-Simulator::~Simulator() {}
+Simulator::~Simulator() = default;
 
 void Simulator::initStack(uint32_t baseaddr, uint32_t maxSize) {
   this->reg[REG_SP] = baseaddr;
@@ -77,7 +77,8 @@ void Simulator::initStack(uint32_t baseaddr, uint32_t maxSize) {
   this->maximumStackSize = maxSize;
 }
 
-void Simulator::simulate() {
+// Simulation function
+[[noreturn]] void Simulator::simulate() {
   // Initialize pipeline registers
   memset(&this->fReg, 0, sizeof(this->fReg));
   memset(&this->fRegNew, 0, sizeof(this->fRegNew));
@@ -96,11 +97,7 @@ void Simulator::simulate() {
 
   // Main Simulation Loop
   while (true) {
-    if (this->reg[0] != 0) {
-      // Some instruction might set this register to zero
-      this->reg[0] = 0;
-      // this->panic("Register 0's value is not zero!\n");
-    }
+    this->reg[REG_ZERO] = 0;  // Register 0 is always zero
 
     if (this->reg[REG_SP] < this->stackBase - this->maximumStackSize) {
       this->panic("Stack Overflow!\n");
@@ -115,7 +112,7 @@ void Simulator::simulate() {
     // Changing them will introduce strange bugs
     this->fetch();
     this->decode();
-    this->excecute();
+    this->execute();
     this->memoryAccess();
     this->writeBack();
 
@@ -178,588 +175,593 @@ void Simulator::fetch() {
   }
 
   this->fRegNew.bubble = false;
-  this->fRegNew.stall = false;
+  this->fRegNew.stall = 0;
   this->fRegNew.inst = inst;
   this->fRegNew.len = len;
   this->fRegNew.pc = this->pc;
-  this->pc = this->pc + len;
+
+  this->pc += len;  // Update PC to fetch next instruction
 }
 
 void Simulator::decode() {
-  if (this->fReg.stall) {
+  // Detect IF stall
+  if (this->fReg.stall != 0) {
     if (verbose) {
-      printf("Decode: Stall\n");
+      std::cout << "Decode: Stall\n";
     }
-    this->pc = this->pc - 4;
+    this->pc -= this->fReg.len;  // Rollback PC
     return;
   }
-  if (this->fReg.bubble || this->fReg.inst == 0) {
+
+  // Detect IF bubble
+  if (this->fReg.bubble ||
+      this->fReg.inst == 0U) {  // If IF is bubbled or instruction is 0
     if (verbose) {
-      printf("Decode: Bubble\n");
+      std::cout << "Decode: Bubble\n";
     }
     this->dRegNew.bubble = true;
     return;
   }
 
-  std::string instname;
-  std::string inststr;
-  std::string deststr;
-  std::string op1str;
-  std::string op2str;
-  std::string op3str;
-  std::string offsetstr;
-  Inst insttype = UNKNOWN;
-  const uint32_t inst = this->fReg.inst;
+  std::string instructionName;
+  std::string instructionStr;
+  std::string destinationStr;
+  std::string op1Str;
+  std::string op2Str;
+  std::string op3Str;
+  std::string offsetStr;
+  Inst instructionType = UNKNOWN;
+  const uint32_t instruction = this->fReg.inst;
 
-  // True values
+  // True numbers
   int32_t op1 = 0;
   int32_t op2 = 0;
-  int32_t op3 = 0;     // For FMA instructions
-  int32_t offset = 0;  // op1, op2 and offset are values
+  int32_t op3 = 0;  // For FMA instructions
+  int32_t offset = 0;
 
   // Register id
-  RegId dest = 0;
-  RegId reg1 = -1;
-  RegId reg2 = -1;  // reg1 and reg2 are operands
-  RegId reg3 = 01;  // For FMA instructions
+  RegId destination = 0;
+  RegId reg1 = 0;
+  RegId reg2 = 0;
+  RegId reg3 = 0;  // For FMA instructions
 
-  // Reg for 32bit instructions
-  if (this->fReg.len == 4)  // 32 bit instruction
-  {
-    const uint32_t opcode = inst & 0x7F;
-    const uint32_t funct3 = (inst >> 12) & 0x7;
-    const uint32_t funct7 = (inst >> 25) & 0x7F;
-    const RegId rd = (inst >> 7) & 0x1F;
-    const RegId rs1 = (inst >> 15) & 0x1F;
-    const RegId rs2 = (inst >> 20) & 0x1F;
-    const RegId rs3 = (inst >> 27) & 0x1F;  // For FMA instructions
-    const int32_t imm_i = static_cast<int32_t>(inst) >> 20;
-    const int32_t imm_s =
-        static_cast<int32_t>(((inst >> 7) & 0x1F) | ((inst >> 20) & 0xFE0))
-            << 20 >>
-        20;
-    const int32_t imm_sb =
-        static_cast<int32_t>(((inst >> 7) & 0x1E) | ((inst >> 20) & 0x7E0) |
-                             ((inst << 4) & 0x800) | ((inst >> 19) & 0x1000))
-            << 19 >>
-        19;
-    const int32_t imm_u = static_cast<int32_t>(inst) >> 12;
-    const int32_t imm_uj =
-        static_cast<int32_t>(((inst >> 21) & 0x3FF) | ((inst >> 10) & 0x400) |
-                             ((inst >> 1) & 0x7F800) | ((inst >> 12) & 0x80000))
-            << 12 >>
-        11;
+  const uint32_t opcode = instruction & 0x7F;
+  const uint32_t funct3 = (instruction >> 12) & 0x7;
+  const uint32_t funct7 = (instruction >> 25) & 0x7F;
+  const RegId rd = (instruction >> 7) & 0x1F;
+  const RegId rs1 = (instruction >> 15) & 0x1F;
+  const RegId rs2 = (instruction >> 20) & 0x1F;
+  const RegId rs3 = (instruction >> 27) & 0x1F;  // For FMA instructions
+  const int32_t imm_i = static_cast<int32_t>(instruction) >> 20;
+  const int32_t imm_s = static_cast<int32_t>(((instruction >> 7) & 0x1F) |
+                                             ((instruction >> 20) & 0xFE0))
+                            << 20 >>
+                        20;
+  const int32_t imm_sb = static_cast<int32_t>(((instruction >> 7) & 0x1E) |
+                                              ((instruction >> 20) & 0x7E0) |
+                                              ((instruction << 4) & 0x800) |
+                                              ((instruction >> 19) & 0x1000))
+                             << 19 >>
+                         19;
+  const int32_t imm_u = static_cast<int32_t>(instruction) >> 12;
+  const int32_t imm_uj = static_cast<int32_t>(((instruction >> 21) & 0x3FF) |
+                                              ((instruction >> 10) & 0x400) |
+                                              ((instruction >> 1) & 0x7F800) |
+                                              ((instruction >> 12) & 0x80000))
+                             << 12 >>
+                         11;
 
-    switch (opcode) {
-      case OP_FMA: {
-        op1 = this->reg[rs1];
-        op2 = this->reg[rs2];
-        op3 = this->reg[rs3];
+  switch (opcode) {
+    case OP_FMA: {
+      op1 = this->reg[rs1];
+      op2 = this->reg[rs2];
+      op3 = this->reg[rs3];
 
-        reg1 = rs1;
-        reg2 = rs2;
-        reg3 = rs3;
-        dest = rd;
+      reg1 = rs1;
+      reg2 = rs2;
+      reg3 = rs3;
+      destination = rd;
 
-        const uint32_t rm = (inst >> 12) & 0x7;
-        const uint32_t fmt = (inst >> 25) & 0x3;
+      const uint32_t rm = (instruction >> 12) & 0x7;
+      const uint32_t fmt = (instruction >> 25) & 0x3;
 
-        switch (rm) {
-          case 0x0: {  // fmadd, fmaddu, fmsub, fmsubu
-            switch (fmt) {
-              case 0x0: {  // fmadd
-                instname = "fmadd";
-                insttype = FMADD;
-                break;
-              }
-              case 0x1: {  // fmaddu
-                instname = "fmaddu";
-                insttype = FMADDU;
-                break;
-              }
-              case 0x2: {  // fmsub
-                instname = "fmsub";
-                insttype = FMSUB;
-                break;
-              }
-              case 0x3: {  // fmsubu
-                instname = "fmsubu";
-                insttype = FMSUBU;
-                break;
-              }
-              default:;
+      switch (rm) {
+        case 0x0: {  // fmadd, fmaddu, fmsub, fmsubu
+          switch (fmt) {
+            case 0x0: {  // fmadd
+              instructionName = "fmadd";
+              instructionType = FMADD;
+              break;
             }
-            break;
-          }
-          case 0x1: {  // fnmadd, fnmsub
-            switch (fmt) {
-              case 0x0: {  // fnmadd
-                instname = "fnmadd";
-                insttype = FNMADD;
-                break;
-              }
-              case 0x1: {  // fnmsub
-                instname = "fnmsub";
-                insttype = FNMSUB;
-                break;
-              }
-              default:;
+            case 0x1: {  // fmaddu
+              instructionName = "fmaddu";
+              instructionType = FMADDU;
+              break;
             }
-            break;
+            case 0x2: {  // fmsub
+              instructionName = "fmsub";
+              instructionType = FMSUB;
+              break;
+            }
+            case 0x3: {  // fmsubu
+              instructionName = "fmsubu";
+              instructionType = FMSUBU;
+              break;
+            }
+            default:;
           }
-          default:;
+          break;
         }
-
-        op1str = REGNAME[rs1];
-        op2str = REGNAME[rs2];
-        op3str = REGNAME[rs3];
-        deststr = REGNAME[rd];
-        inststr = instname + " " + deststr + "," + op1str + "," + op2str + "," +
-                  op3str;
-
-        break;
+        case 0x1: {  // fnmadd, fnmsub
+          switch (fmt) {
+            case 0x0: {  // fnmadd
+              instructionName = "fnmadd";
+              instructionType = FNMADD;
+              break;
+            }
+            case 0x1: {  // fnmsub
+              instructionName = "fnmsub";
+              instructionType = FNMSUB;
+              break;
+            }
+            default:;
+          }
+          break;
+        }
+        default:;
       }
-      case OP_REG:
-        op1 = this->reg[rs1];
-        op2 = this->reg[rs2];
 
-        reg1 = rs1;
-        reg2 = rs2;
+      op1Str = REGNAME[rs1];
+      op2Str = REGNAME[rs2];
+      op3Str = REGNAME[rs3];
+      destinationStr = REGNAME[rd];
+      instructionStr = instructionName + " " + destinationStr + "," + op1Str +
+                       "," + op2Str + "," + op3Str;
 
-        dest = rd;
-        switch (funct3) {
-          case 0x0:  // add, mul, sub
-            if (funct7 == 0x00) {
-              instname = "add";
-              insttype = ADD;
-            } else if (funct7 == 0x01) {
-              instname = "mul";
-              insttype = MUL;
-            } else if (funct7 == 0x20) {
-              instname = "sub";
-              insttype = SUB;
-            } else {
-              this->panic("Unknown funct7 0x%x for funct3 0x%x\n", funct7,
-                          funct3);
-            }
-            break;
-          case 0x1:  // sll, mulh
-            if (funct7 == 0x00) {
-              instname = "sll";
-              insttype = SLL;
-            } else if (funct7 == 0x01) {
-              instname = "mulh";
-              insttype = MULH;
-            } else {
-              this->panic("Unknown funct7 0x%x for funct3 0x%x\n", funct7,
-                          funct3);
-            }
-            break;
-          case 0x2:  // slt
-            if (funct7 == 0x00) {
-              instname = "slt";
-              insttype = SLT;
-            } else {
-              this->panic("Unknown funct7 0x%x for funct3 0x%x\n", funct7,
-                          funct3);
-            }
-            break;
-          case 0x3:  // sltu
-            if (funct7 == 0x00) {
-              instname = "sltu";
-              insttype = SLTU;
-            } else {
-              this->panic("Unknown funct7 0x%x for funct3 0x%x\n", funct7,
-                          funct3);
-            }
-            break;
-          case 0x4:  // xor div
-            if (funct7 == 0x00) {
-              instname = "xor";
-              insttype = XOR;
-            } else if (funct7 == 0x01) {
-              instname = "div";
-              insttype = DIV;
-            } else {
-              this->panic("Unknown funct7 0x%x for funct3 0x%x\n", funct7,
-                          funct3);
-            }
-            break;
-          case 0x5:  // srl, sra
-            if (funct7 == 0x00) {
-              instname = "srl";
-              insttype = SRL;
-            } else if (funct7 == 0x20) {
-              instname = "sra";
-              insttype = SRA;
-            } else {
-              this->panic("Unknown funct7 0x%x for funct3 0x%x\n", funct7,
-                          funct3);
-            }
-            break;
-          case 0x6:  // or, rem
-            if (funct7 == 0x00) {
-              instname = "or";
-              insttype = OR;
-            } else if (funct7 == 0x01) {
-              instname = "rem";
-              insttype = REM;
-            } else {
-              this->panic("Unknown funct7 0x%x for funct3 0x%x\n", funct7,
-                          funct3);
-            }
-            break;
-          case 0x7:  // and
-            if (funct7 == 0x00) {
-              instname = "and";
-              insttype = AND;
-            } else {
-              this->panic("Unknown funct7 0x%x for funct3 0x%x\n", funct7,
-                          funct3);
-            }
-            break;
-          default:
-            this->panic("Unknown Funct3 field %x\n", funct3);
-        }
-        op1str = REGNAME[rs1];
-        op2str = REGNAME[rs2];
-        deststr = REGNAME[rd];
-        inststr = instname + " " + deststr + "," + op1str + "," + op2str;
-        break;
-      case OP_IMM:
-        op1 = this->reg[rs1];
-        reg1 = rs1;
-        op2 = imm_i;
-        dest = rd;
-        switch (funct3) {
-          case 0x0:
-            instname = "addi";
-            insttype = ADDI;
-            break;
-          case 0x2:
-            instname = "slti";
-            insttype = SLTI;
-            break;
-          case 0x3:
-            instname = "sltiu";
-            insttype = SLTIU;
-            break;
-          case 0x4:
-            instname = "xori";
-            insttype = XORI;
-            break;
-          case 0x6:
-            instname = "ori";
-            insttype = ORI;
-            break;
-          case 0x7:
-            instname = "andi";
-            insttype = ANDI;
-            break;
-          case 0x1:
-            instname = "slli";
-            insttype = SLLI;
+      break;
+    }
+    case OP_REG:
+      op1 = this->reg[rs1];
+      op2 = this->reg[rs2];
+
+      reg1 = rs1;
+      reg2 = rs2;
+
+      destination = rd;
+      switch (funct3) {
+        case 0x0:  // add, mul, sub
+          if (funct7 == 0x00) {
+            instructionName = "add";
+            instructionType = ADD;
+          } else if (funct7 == 0x01) {
+            instructionName = "mul";
+            instructionType = MUL;
+          } else if (funct7 == 0x20) {
+            instructionName = "sub";
+            instructionType = SUB;
+          } else {
+            this->panic("Unknown funct7 0x%x for funct3 0x%x\n", funct7,
+                        funct3);
+          }
+          break;
+        case 0x1:  // sll, mulh
+          if (funct7 == 0x00) {
+            instructionName = "sll";
+            instructionType = SLL;
+          } else if (funct7 == 0x01) {
+            instructionName = "mulh";
+            instructionType = MULH;
+          } else {
+            this->panic("Unknown funct7 0x%x for funct3 0x%x\n", funct7,
+                        funct3);
+          }
+          break;
+        case 0x2:  // slt
+          if (funct7 == 0x00) {
+            instructionName = "slt";
+            instructionType = SLT;
+          } else {
+            this->panic("Unknown funct7 0x%x for funct3 0x%x\n", funct7,
+                        funct3);
+          }
+          break;
+        case 0x3:  // sltu
+          if (funct7 == 0x00) {
+            instructionName = "sltu";
+            instructionType = SLTU;
+          } else {
+            this->panic("Unknown funct7 0x%x for funct3 0x%x\n", funct7,
+                        funct3);
+          }
+          break;
+        case 0x4:  // xor div
+          if (funct7 == 0x00) {
+            instructionName = "xor";
+            instructionType = XOR;
+          } else if (funct7 == 0x01) {
+            instructionName = "div";
+            instructionType = DIV;
+          } else {
+            this->panic("Unknown funct7 0x%x for funct3 0x%x\n", funct7,
+                        funct3);
+          }
+          break;
+        case 0x5:  // srl, sra
+          if (funct7 == 0x00) {
+            instructionName = "srl";
+            instructionType = SRL;
+          } else if (funct7 == 0x20) {
+            instructionName = "sra";
+            instructionType = SRA;
+          } else {
+            this->panic("Unknown funct7 0x%x for funct3 0x%x\n", funct7,
+                        funct3);
+          }
+          break;
+        case 0x6:  // or, rem
+          if (funct7 == 0x00) {
+            instructionName = "or";
+            instructionType = OR;
+          } else if (funct7 == 0x01) {
+            instructionName = "rem";
+            instructionType = REM;
+          } else {
+            this->panic("Unknown funct7 0x%x for funct3 0x%x\n", funct7,
+                        funct3);
+          }
+          break;
+        case 0x7:  // and
+          if (funct7 == 0x00) {
+            instructionName = "and";
+            instructionType = AND;
+          } else {
+            this->panic("Unknown funct7 0x%x for funct3 0x%x\n", funct7,
+                        funct3);
+          }
+          break;
+        default:
+          this->panic("Unknown Funct3 field %x\n", funct3);
+      }
+      op1Str = REGNAME[rs1];
+      op2Str = REGNAME[rs2];
+      destinationStr = REGNAME[rd];
+      instructionStr =
+          instructionName + " " + destinationStr + "," + op1Str + "," + op2Str;
+      break;
+    case OP_IMM:
+      op1 = this->reg[rs1];
+      reg1 = rs1;
+      op2 = imm_i;
+      destination = rd;
+      switch (funct3) {
+        case 0x0:
+          instructionName = "addi";
+          instructionType = ADDI;
+          break;
+        case 0x2:
+          instructionName = "slti";
+          instructionType = SLTI;
+          break;
+        case 0x3:
+          instructionName = "sltiu";
+          instructionType = SLTIU;
+          break;
+        case 0x4:
+          instructionName = "xori";
+          instructionType = XORI;
+          break;
+        case 0x6:
+          instructionName = "ori";
+          instructionType = ORI;
+          break;
+        case 0x7:
+          instructionName = "andi";
+          instructionType = ANDI;
+          break;
+        case 0x1:
+          instructionName = "slli";
+          instructionType = SLLI;
+          op2 = op2 & 0x3F;
+          break;
+        case 0x5:
+          if (((instruction >> 26) & 0x3F) == 0x0) {
+            instructionName = "srli";
+            instructionType = SRLI;
             op2 = op2 & 0x3F;
-            break;
-          case 0x5:
-            if (((inst >> 26) & 0x3F) == 0x0) {
-              instname = "srli";
-              insttype = SRLI;
-              op2 = op2 & 0x3F;
-            } else if (((inst >> 26) & 0x3F) == 0x10) {
-              instname = "srai";
-              insttype = SRAI;
-              op2 = op2 & 0x3F;
-            } else {
-              this->panic("Unknown funct7 0x%x for OP_IMM\n",
-                          (inst >> 26) & 0x3F);
-            }
-            break;
-          default:
-            this->panic("Unknown Funct3 field %x\n", funct3);
-        }
-        op1str = REGNAME[rs1];
-        op2str = std::to_string(op2);
-        deststr = REGNAME[dest];
-        inststr = instname + " " + deststr + "," + op1str + "," + op2str;
-        break;
-      case OP_LUI:
-        op1 = imm_u;
-        op2 = 0;
-        offset = imm_u;
-        dest = rd;
-        instname = "lui";
-        insttype = LUI;
-        op1str = std::to_string(imm_u);
-        deststr = REGNAME[dest];
-        inststr = instname + " " + deststr + "," + op1str;
-        break;
-      case OP_AUIPC:
-        op1 = imm_u;
-        op2 = 0;
-        offset = imm_u;
-        dest = rd;
-        instname = "auipc";
-        insttype = AUIPC;
-        op1str = std::to_string(imm_u);
-        deststr = REGNAME[dest];
-        inststr = instname + " " + deststr + "," + op1str;
-        break;
-      case OP_JAL:
-        op1 = imm_uj;
-        op2 = 0;
-        offset = imm_uj;
-        dest = rd;
-        instname = "jal";
-        insttype = JAL;
-        op1str = std::to_string(imm_uj);
-        deststr = REGNAME[dest];
-        inststr = instname + " " + deststr + "," + op1str;
-        break;
-      case OP_JALR:
-        op1 = this->reg[rs1];
-        reg1 = rs1;
-        op2 = imm_i;
-        dest = rd;
-        instname = "jalr";
-        insttype = JALR;
-        op1str = REGNAME[rs1];
-        op2str = std::to_string(op2);
-        deststr = REGNAME[dest];
-        inststr = instname + " " + deststr + "," + op1str + "," + op2str;
-        break;
-      case OP_BRANCH:
-        op1 = this->reg[rs1];
-        op2 = this->reg[rs2];
-        reg1 = rs1;
-        reg2 = rs2;
-        offset = imm_sb;
-        switch (funct3) {
-          case 0x0:
-            instname = "beq";
-            insttype = BEQ;
-            break;
-          case 0x1:
-            instname = "bne";
-            insttype = BNE;
-            break;
-          case 0x4:
-            instname = "blt";
-            insttype = BLT;
-            break;
-          case 0x5:
-            instname = "bge";
-            insttype = BGE;
-            break;
-          case 0x6:
-            instname = "bltu";
-            insttype = BLTU;
-            break;
-          case 0x7:
-            instname = "bgeu";
-            insttype = BGEU;
-            break;
-          default:
-            this->panic("Unknown funct3 0x%x at OP_BRANCH\n", funct3);
-        }
-        op1str = REGNAME[rs1];
-        op2str = REGNAME[rs2];
-        offsetstr = std::to_string(offset);
-        inststr = instname + " " + op1str + "," + op2str + "," + offsetstr;
-        break;
-      case OP_STORE:
-        op1 = this->reg[rs1];
-        op2 = this->reg[rs2];
-        reg1 = rs1;
-        reg2 = rs2;
-        offset = imm_s;
-        switch (funct3) {
-          case 0x0:
-            instname = "sb";
-            insttype = SB;
-            break;
-          case 0x1:
-            instname = "sh";
-            insttype = SH;
-            break;
-          case 0x2:
-            instname = "sw";
-            insttype = SW;
-            break;
-          case 0x3:
-            instname = "sd";
-            insttype = SD;
-            break;
-          default:
-            this->panic("Unknown funct3 0x%x for OP_STORE\n", funct3);
-        }
-        op1str = REGNAME[rs1];
-        op2str = REGNAME[rs2];
-        offsetstr = std::to_string(offset);
-        inststr =
-            instname + " " + op2str + "," + offsetstr + "(" + op1str + ")";
-        break;
-      case OP_LOAD:
-        op1 = this->reg[rs1];
-        reg1 = rs1;
-        op2 = imm_i;
-        offset = imm_i;
-        dest = rd;
-        switch (funct3) {
-          case 0x0:
-            instname = "lb";
-            insttype = LB;
-            break;
-          case 0x1:
-            instname = "lh";
-            insttype = LH;
-            break;
-          case 0x2:
-            instname = "lw";
-            insttype = LW;
-            break;
-          case 0x3:
-            instname = "ld";
-            insttype = LD;
-            break;
-          case 0x4:
-            instname = "lbu";
-            insttype = LBU;
-            break;
-          case 0x5:
-            instname = "lhu";
-            insttype = LHU;
-            break;
-          case 0x6:
-            instname = "lwu";
-            insttype = LWU;
-          default:
-            this->panic("Unknown funct3 0x%x for OP_LOAD\n", funct3);
-        }
-        op1str = REGNAME[rs1];
-        op2str = std::to_string(op2);
-        deststr = REGNAME[rd];
-        inststr = instname + " " + deststr + "," + op2str + "(" + op1str + ")";
-        break;
-      case OP_SYSTEM:
-        if (funct3 == 0x0 && funct7 == 0x000) {
-          instname = "ecall";
-          op1 = this->reg[REG_A0];
-          op2 = this->reg[REG_A7];
-          reg1 = REG_A0;
-          reg2 = REG_A7;
-          dest = REG_A0;
-          insttype = ECALL;
-        } else {
-          this->panic(
-              "Unknown OP_SYSTEM inst with funct3 0x%x and funct7 0x%x\n",
-              funct3, funct7);
-        }
-        inststr = instname;
-        break;
-      case OP_IMM32:
-        op1 = this->reg[rs1];
-        reg1 = rs1;
-        op2 = imm_i;
-        dest = rd;
-        switch (funct3) {
-          case 0x0:
-            instname = "addiw";
-            insttype = ADDIW;
-            break;
-          case 0x1:
-            instname = "slliw";
-            insttype = SLLIW;
-            break;
-          case 0x5:
-            if (((inst >> 25) & 0x7F) == 0x0) {
-              instname = "srliw";
-              insttype = SRLIW;
-            } else if (((inst >> 25) & 0x7F) == 0x20) {
-              instname = "sraiw";
-              insttype = SRAIW;
-            } else {
-              this->panic("Unknown shift inst type 0x%x\n",
-                          ((inst >> 25) & 0x7F));
-            }
-            break;
-          default:
-            this->panic("Unknown funct3 0x%x for OP_ADDIW\n", funct3);
-        }
-        op1str = REGNAME[rs1];
-        op2str = std::to_string(op2);
-        deststr = REGNAME[rd];
-        inststr = instname + " " + deststr + "," + op1str + "," + op2str;
-        break;
-      case OP_32: {
-        op1 = this->reg[rs1];
-        op2 = this->reg[rs2];
-        reg1 = rs1;
-        reg2 = rs2;
-        dest = rd;
+          } else if (((instruction >> 26) & 0x3F) == 0x10) {
+            instructionName = "srai";
+            instructionType = SRAI;
+            op2 = op2 & 0x3F;
+          } else {
+            this->panic("Unknown funct7 0x%x for OP_IMM\n",
+                        (instruction >> 26) & 0x3F);
+          }
+          break;
+        default:
+          this->panic("Unknown Funct3 field %x\n", funct3);
+      }
+      op1Str = REGNAME[rs1];
+      op2Str = std::to_string(op2);
+      destinationStr = REGNAME[destination];
+      instructionStr =
+          instructionName + " " + destinationStr + "," + op1Str + "," + op2Str;
+      break;
+    case OP_LUI:
+      op1 = imm_u;
+      op2 = 0;
+      offset = imm_u;
+      destination = rd;
+      instructionName = "lui";
+      instructionType = LUI;
+      op1Str = std::to_string(imm_u);
+      destinationStr = REGNAME[destination];
+      instructionStr = instructionName + " " + destinationStr + "," + op1Str;
+      break;
+    case OP_AUIPC:
+      op1 = imm_u;
+      op2 = 0;
+      offset = imm_u;
+      destination = rd;
+      instructionName = "auipc";
+      instructionType = AUIPC;
+      op1Str = std::to_string(imm_u);
+      destinationStr = REGNAME[destination];
+      instructionStr = instructionName + " " + destinationStr + "," + op1Str;
+      break;
+    case OP_JAL:
+      op1 = imm_uj;
+      op2 = 0;
+      offset = imm_uj;
+      destination = rd;
+      instructionName = "jal";
+      instructionType = JAL;
+      op1Str = std::to_string(imm_uj);
+      destinationStr = REGNAME[destination];
+      instructionStr = instructionName + " " + destinationStr + "," + op1Str;
+      break;
+    case OP_JALR:
+      op1 = this->reg[rs1];
+      reg1 = rs1;
+      op2 = imm_i;
+      destination = rd;
+      instructionName = "jalr";
+      instructionType = JALR;
+      op1Str = REGNAME[rs1];
+      op2Str = std::to_string(op2);
+      destinationStr = REGNAME[destination];
+      instructionStr =
+          instructionName + " " + destinationStr + "," + op1Str + "," + op2Str;
+      break;
+    case OP_BRANCH:
+      op1 = this->reg[rs1];
+      op2 = this->reg[rs2];
+      reg1 = rs1;
+      reg2 = rs2;
+      offset = imm_sb;
+      switch (funct3) {
+        case 0x0:
+          instructionName = "beq";
+          instructionType = BEQ;
+          break;
+        case 0x1:
+          instructionName = "bne";
+          instructionType = BNE;
+          break;
+        case 0x4:
+          instructionName = "blt";
+          instructionType = BLT;
+          break;
+        case 0x5:
+          instructionName = "bge";
+          instructionType = BGE;
+          break;
+        case 0x6:
+          instructionName = "bltu";
+          instructionType = BLTU;
+          break;
+        case 0x7:
+          instructionName = "bgeu";
+          instructionType = BGEU;
+          break;
+        default:
+          this->panic("Unknown funct3 0x%x at OP_BRANCH\n", funct3);
+      }
+      op1Str = REGNAME[rs1];
+      op2Str = REGNAME[rs2];
+      offsetStr = std::to_string(offset);
+      instructionStr =
+          instructionName + " " + op1Str + "," + op2Str + "," + offsetStr;
+      break;
+    case OP_STORE:
+      op1 = this->reg[rs1];
+      op2 = this->reg[rs2];
+      reg1 = rs1;
+      reg2 = rs2;
+      offset = imm_s;
+      switch (funct3) {
+        case 0x0:
+          instructionName = "sb";
+          instructionType = SB;
+          break;
+        case 0x1:
+          instructionName = "sh";
+          instructionType = SH;
+          break;
+        case 0x2:
+          instructionName = "sw";
+          instructionType = SW;
+          break;
+        case 0x3:
+          instructionName = "sd";
+          instructionType = SD;
+          break;
+        default:
+          this->panic("Unknown funct3 0x%x for OP_STORE\n", funct3);
+      }
+      op1Str = REGNAME[rs1];
+      op2Str = REGNAME[rs2];
+      offsetStr = std::to_string(offset);
+      instructionStr =
+          instructionName + " " + op2Str + "," + offsetStr + "(" + op1Str + ")";
+      break;
+    case OP_LOAD:
+      op1 = this->reg[rs1];
+      reg1 = rs1;
+      op2 = imm_i;
+      offset = imm_i;
+      destination = rd;
+      switch (funct3) {
+        case 0x0:
+          instructionName = "lb";
+          instructionType = LB;
+          break;
+        case 0x1:
+          instructionName = "lh";
+          instructionType = LH;
+          break;
+        case 0x2:
+          instructionName = "lw";
+          instructionType = LW;
+          break;
+        case 0x3:
+          instructionName = "ld";
+          instructionType = LD;
+          break;
+        case 0x4:
+          instructionName = "lbu";
+          instructionType = LBU;
+          break;
+        case 0x5:
+          instructionName = "lhu";
+          instructionType = LHU;
+          break;
+        case 0x6:
+          instructionName = "lwu";
+          instructionType = LWU;
+        default:
+          this->panic("Unknown funct3 0x%x for OP_LOAD\n", funct3);
+      }
+      op1Str = REGNAME[rs1];
+      op2Str = std::to_string(op2);
+      destinationStr = REGNAME[rd];
+      instructionStr = instructionName + " " + destinationStr + "," + op2Str +
+                       "(" + op1Str + ")";
+      break;
+    case OP_SYSTEM:
+      if (funct3 == 0x0 && funct7 == 0x000) {
+        instructionName = "ecall";
+        op1 = this->reg[REG_A0];
+        op2 = this->reg[REG_A7];
+        reg1 = REG_A0;
+        reg2 = REG_A7;
+        destination = REG_A0;
+        instructionType = ECALL;
+      } else {
+        this->panic("Unknown OP_SYSTEM inst with funct3 0x%x and funct7 0x%x\n",
+                    funct3, funct7);
+      }
+      instructionStr = instructionName;
+      break;
+    case OP_IMM32:
+      op1 = this->reg[rs1];
+      reg1 = rs1;
+      op2 = imm_i;
+      destination = rd;
+      switch (funct3) {
+        case 0x0:
+          instructionName = "addiw";
+          instructionType = ADDIW;
+          break;
+        case 0x1:
+          instructionName = "slliw";
+          instructionType = SLLIW;
+          break;
+        case 0x5:
+          if (((instruction >> 25) & 0x7F) == 0x0) {
+            instructionName = "srliw";
+            instructionType = SRLIW;
+          } else if (((instruction >> 25) & 0x7F) == 0x20) {
+            instructionName = "sraiw";
+            instructionType = SRAIW;
+          } else {
+            this->panic("Unknown shift inst type 0x%x\n",
+                        ((instruction >> 25) & 0x7F));
+          }
+          break;
+        default:
+          this->panic("Unknown funct3 0x%x for OP_ADDIW\n", funct3);
+      }
+      op1Str = REGNAME[rs1];
+      op2Str = std::to_string(op2);
+      destinationStr = REGNAME[rd];
+      instructionStr =
+          instructionName + " " + destinationStr + "," + op1Str + "," + op2Str;
+      break;
+    case OP_32: {
+      op1 = this->reg[rs1];
+      op2 = this->reg[rs2];
+      reg1 = rs1;
+      reg2 = rs2;
+      destination = rd;
 
-        uint32_t temp = (inst >> 25) & 0x7F;  // 32bit funct7 field
-        switch (funct3) {
-          case 0x0:
-            if (temp == 0x0) {
-              instname = "addw";
-              insttype = ADDW;
-            } else if (temp == 0x20) {
-              instname = "subw";
-              insttype = SUBW;
-            } else {
-              this->panic("Unknown 32bit funct7 0x%x\n", temp);
-            }
-            break;
-          case 0x1:
-            if (temp == 0x0) {
-              instname = "sllw";
-              insttype = SLLW;
-            } else {
-              this->panic("Unknown 32bit funct7 0x%x\n", temp);
-            }
-            break;
-          case 0x5:
-            if (temp == 0x0) {
-              instname = "srlw";
-              insttype = SRLW;
-            } else if (temp == 0x20) {
-              instname = "sraw";
-              insttype = SRAW;
-            } else {
-              this->panic("Unknown 32bit funct7 0x%x\n", temp);
-            }
-            break;
-          default:
-            this->panic("Unknown 32bit funct3 0x%x\n", funct3);
-        }
-      } break;
-      default:
-        this->panic("Unsupported opcode 0x%x!\n", opcode);
-    }
-
-    char buf[4096];
-    sprintf(buf, "0x%llx: %s\n", this->fReg.pc, inststr.c_str());
-    this->history.instRecord.push_back(buf);
-
-    if (verbose) {
-      printf("Decoded instruction 0x%.8x as %s\n", inst, inststr.c_str());
-    }
-  } else {
-    // 16 bit instruction
-    this->panic(
-        "Current implementation does not support 16bit RV64C instructions!\n");
+      uint32_t temp = (instruction >> 25) & 0x7F;  // 32bit funct7 field
+      switch (funct3) {
+        case 0x0:
+          if (temp == 0x0) {
+            instructionName = "addw";
+            instructionType = ADDW;
+          } else if (temp == 0x20) {
+            instructionName = "subw";
+            instructionType = SUBW;
+          } else {
+            this->panic("Unknown 32bit funct7 0x%x\n", temp);
+          }
+          break;
+        case 0x1:
+          if (temp == 0x0) {
+            instructionName = "sllw";
+            instructionType = SLLW;
+          } else {
+            this->panic("Unknown 32bit funct7 0x%x\n", temp);
+          }
+          break;
+        case 0x5:
+          if (temp == 0x0) {
+            instructionName = "srlw";
+            instructionType = SRLW;
+          } else if (temp == 0x20) {
+            instructionName = "sraw";
+            instructionType = SRAW;
+          } else {
+            this->panic("Unknown 32bit funct7 0x%x\n", temp);
+          }
+          break;
+        default:
+          this->panic("Unknown 32bit funct3 0x%x\n", funct3);
+      }
+    } break;
+    default:
+      this->panic("Unsupported opcode 0x%x!\n", opcode);
   }
 
-  if (instname != INSTNAME[insttype]) {
-    this->panic("Unmatch instname %s with insttype %d\n", instname.c_str(),
-                insttype);
+  char buf[4096];
+  sprintf(buf, "0x%llx: %s\n", this->fReg.pc, instructionStr.c_str());
+  this->history.instRecord.push_back(buf);
+
+  if (verbose) {
+    printf("Decoded instruction 0x%.8x as %s\n", instruction,
+           instructionStr.c_str());
+  }
+
+  if (instructionName != INSTNAME[instructionType]) {
+    this->panic("Unmatch instname %s with insttype %d\n",
+                instructionName.c_str(), instructionType);
   }
 
   bool predictedBranch = false;
-  if (isBranch(insttype)) {
-    predictedBranch = this->branchPredictor->predict(this->fReg.pc, insttype,
-                                                     op1, op2, offset);
+  if (isBranch(instructionType)) {
+    predictedBranch = this->branchPredictor->predict(
+        this->fReg.pc, instructionType, op1, op2, offset);
     if (predictedBranch) {
       this->dRegNew.predictedPC = this->fReg.pc + offset;
       this->dRegNew.anotherPC = this->fReg.pc + 4;
@@ -769,23 +771,23 @@ void Simulator::decode() {
     }
   }
 
-  this->dRegNew.stall = false;
+  this->dRegNew.stall = 0;
   this->dRegNew.bubble = false;
   this->dRegNew.rs1 = reg1;
   this->dRegNew.rs2 = reg2;
   this->dRegNew.rs3 = reg3;
   this->dRegNew.pc = this->fReg.pc;
-  this->dRegNew.inst = insttype;
+  this->dRegNew.inst = instructionType;
   this->dRegNew.predictedBranch = predictedBranch;
-  this->dRegNew.dest = dest;
+  this->dRegNew.dest = destination;
   this->dRegNew.op1 = op1;
   this->dRegNew.op2 = op2;
   this->dRegNew.op3 = op3;
   this->dRegNew.offset = offset;
 }
 
-void Simulator::excecute() {
-  if (this->dReg.stall) {
+void Simulator::execute() {
+  if (this->dReg.stall != 0) {
     if (verbose) {
       printf("Execute: Stall\n");
     }
@@ -832,7 +834,7 @@ void Simulator::excecute() {
     }
     case FMADDU: {
       writeReg = true;
-      out = op1 * op2 + op3;
+      out = static_cast<uint32_t>(op1) * static_cast<uint32_t>(op2) + op3;
       this->history.cycleCount += 3;
       break;
     }
@@ -1104,7 +1106,7 @@ void Simulator::excecute() {
       this->fRegNew.stall = 2;
       this->dRegNew.stall = 2;
       this->eRegNew.bubble = true;
-      this->history.cycleCount--;
+      this->history.cycleCount--;  // WHY???
       this->history.memoryHazardCount++;
     }
   }
@@ -1248,11 +1250,11 @@ void Simulator::memoryAccess() {
     printf("Memory Access: %s\n", INSTNAME[inst]);
   }
 
-  // Check for data hazard and forward data
-  if (writeReg && destReg != 0) {
+  // Check for data hazard and forward data to ID stage
+  if (writeReg && destReg != REG_ZERO) {
     if (this->dRegNew.rs1 == destReg) {
       // Avoid overwriting recent values
-      if (this->executeWriteBack == false ||
+      if (!this->executeWriteBack ||
           (this->executeWriteBack && this->executeWBReg != destReg)) {
         this->dRegNew.op1 = out;
         this->memoryWriteBack = true;
@@ -1264,7 +1266,7 @@ void Simulator::memoryAccess() {
     }
     if (this->dRegNew.rs2 == destReg) {
       // Avoid overwriting recent values
-      if (this->executeWriteBack == false ||
+      if (!this->executeWriteBack ||
           (this->executeWriteBack && this->executeWBReg != destReg)) {
         this->dRegNew.op2 = out;
         this->memoryWriteBack = true;
@@ -1276,7 +1278,7 @@ void Simulator::memoryAccess() {
     }
     if (this->dRegNew.rs3 == destReg) {
       // Avoid overwriting recent values
-      if (this->executeWriteBack == false ||
+      if (!this->executeWriteBack ||
           (this->executeWriteBack && this->executeWBReg != destReg)) {
         this->dRegNew.op3 = out;
         this->memoryWriteBack = true;
@@ -1286,11 +1288,19 @@ void Simulator::memoryAccess() {
           printf("  Forward Data %s to Decode op3\n", REGNAME[destReg]);
       }
     }
+
     // Corner case of forwarding mem load data to stalled decode reg
-    if (this->dReg.stall) {
-      if (this->dReg.rs1 == destReg) this->dReg.op1 = out;
-      if (this->dReg.rs2 == destReg) this->dReg.op2 = out;
-      if (this->dReg.rs3 == destReg) this->dReg.op3 = out;
+    if (this->dReg.stall != 0) {
+      if (this->dReg.rs1 == destReg) {
+        this->dReg.op1 = out;
+      }
+      if (this->dReg.rs2 == destReg) {
+        this->dReg.op2 = out;
+      }
+      if (this->dReg.rs3 == destReg) {
+        this->dReg.op3 = out;
+      }
+
       this->memoryWriteBack = true;
       this->memoryWBReg = destReg;
       this->history.dataHazardCount++;
@@ -1310,8 +1320,9 @@ void Simulator::memoryAccess() {
   this->mRegNew.out = out;
 }
 
+// WB stage
 void Simulator::writeBack() {
-  if (this->mReg.stall) {
+  if (this->mReg.stall != 0) {
     if (verbose) {
       printf("WriteBack: stall\n");
     }
@@ -1328,7 +1339,7 @@ void Simulator::writeBack() {
     printf("WriteBack: %s\n", INSTNAME[this->mReg.inst]);
   }
 
-  if (this->mReg.writeReg && this->mReg.destReg != 0) {
+  if (this->mReg.writeReg && this->mReg.destReg != REG_ZERO) {
     // Check for data hazard and forward data
     if (this->dRegNew.rs1 == this->mReg.destReg) {
       // Avoid overwriting recent data

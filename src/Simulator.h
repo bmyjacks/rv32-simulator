@@ -131,41 +131,30 @@ enum Inst {
 extern const char* INSTNAME[];
 
 // Opcode field
-const int OP_REG = 0x33;
-const int OP_IMM = 0x13;
-const int OP_LUI = 0x37;
-const int OP_BRANCH = 0x63;
-const int OP_STORE = 0x23;
-const int OP_LOAD = 0x03;
-const int OP_SYSTEM = 0x73;
-const int OP_AUIPC = 0x17;
-const int OP_JAL = 0x6F;
-const int OP_JALR = 0x67;
-const int OP_IMM32 = 0x1B;
-const int OP_32 = 0x3B;
+constexpr int OP_REG = 0x33;
+constexpr int OP_IMM = 0x13;
+constexpr int OP_LUI = 0x37;
+constexpr int OP_BRANCH = 0x63;
+constexpr int OP_STORE = 0x23;
+constexpr int OP_LOAD = 0x03;
+constexpr int OP_SYSTEM = 0x73;
+constexpr int OP_AUIPC = 0x17;
+constexpr int OP_JAL = 0x6F;
+constexpr int OP_JALR = 0x67;
+constexpr int OP_IMM32 = 0x1B;
+constexpr int OP_32 = 0x3B;
 constexpr int32_t OP_FMA = 0x0B;  // FMA opcode
 
-inline bool isBranch(Inst inst) {
-  if (inst == BEQ || inst == BNE || inst == BLT || inst == BGE ||
-      inst == BLTU || inst == BGEU) {
-    return true;
-  }
-  return false;
+inline bool isBranch(const Inst& inst) {
+  return inst == BEQ || inst == BNE || inst == BLT || inst == BGE ||
+         inst == BLTU || inst == BGEU;
 }
 
-inline bool isJump(Inst inst) {
-  if (inst == JAL || inst == JALR) {
-    return true;
-  }
-  return false;
-}
+inline bool isJump(const Inst& inst) { return inst == JAL || inst == JALR; }
 
-inline bool isReadMem(Inst inst) {
-  if (inst == LB || inst == LH || inst == LW || inst == LD || inst == LBU ||
-      inst == LHU || inst == LWU) {
-    return true;
-  }
-  return false;
+inline bool isReadMem(const Inst& inst) {
+  return inst == LB || inst == LH || inst == LW || inst == LD || inst == LBU ||
+         inst == LHU || inst == LWU;
 }
 }  // namespace RISCV
 
@@ -186,7 +175,7 @@ class Simulator {
 
   void initStack(uint32_t baseaddr, uint32_t maxSize);
 
-  void simulate();
+  [[noreturn]] void simulate();
 
   void dumpHistory();
 
@@ -209,7 +198,11 @@ class Simulator {
     // Control Signals
     bool bubble;
     uint32_t stall;
-    RISCV::RegId rs1, rs2, rs3;
+
+    // Registers
+    RISCV::RegId rs1;
+    RISCV::RegId rs2;
+    RISCV::RegId rs3;
 
     uint32_t pc;
     RISCV::Inst inst;
@@ -286,7 +279,7 @@ class Simulator {
 
   void fetch();
   void decode();
-  void excecute();
+  void execute();
   void memoryAccess();
   void writeBack();
 
