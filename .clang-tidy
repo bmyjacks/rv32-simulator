@@ -1,0 +1,15 @@
+---
+FormatStyle: google
+Checks: '-*,
+bugprone-*,
+cert-*,
+clang-analyzer-*,
+cppcoreguidelines-*,
+google-*,
+hicpp-*,
+llvm-*,
+misc-*,
+modernize-*,
+performance-*,
+portability-*,
+readability-*'
