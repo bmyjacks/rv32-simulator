@@ -32,14 +32,16 @@ BranchPredictor::Strategy strategy = BranchPredictor::Strategy::NT;
 BranchPredictor branchPredictor;
 Simulator simulator(&memory, &branchPredictor);
 
-int main(int argc, char** argv) {
-  if (!parseParameters(argc, argv)) {
+auto main(const int argc, char** argv) -> int {
+  if (!parseParameters(argc, argv)) {  // Parse command line arguments
     printUsage();
     exit(-1);
   }
 
   // Init cache
-  Cache::Policy l1Policy, l2Policy, l3Policy;
+  Cache::Policy l1Policy;
+  Cache::Policy l2Policy;
+  Cache::Policy l3Policy;
 
   l1Policy.cacheSize = 32 * 1024;
   l1Policy.blockSize = 64;
@@ -110,13 +112,13 @@ bool parseParameters(int argc, char** argv) {
     if (argv[i][0] == '-') {
       switch (argv[i][1]) {
         case 'v':
-          verbose = 1;
+          verbose = true;
           break;
         case 's':
-          isSingleStep = 1;
+          isSingleStep = true;
           break;
         case 'd':
-          dumpHistory = 1;
+          dumpHistory = true;
           break;
         case 'b':
           if (i + 1 < argc) {
@@ -148,10 +150,7 @@ bool parseParameters(int argc, char** argv) {
       }
     }
   }
-  if (elfFile == nullptr) {
-    return false;
-  }
-  return true;
+  return elfFile != nullptr;
 }
 
 void printUsage() {

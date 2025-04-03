@@ -2,11 +2,13 @@
  * Main Body for the RISCV Simulator
  *
  * Created by He, Hao at 2019-3-11
+ * Revised by MINGYI at 2025-04-03
  */
 
 #ifndef SIMULATOR_H
 #define SIMULATOR_H
 
+#include <array>
 #include <cstdarg>
 #include <cstdint>
 #include <string>
@@ -16,9 +18,9 @@
 #include "MemoryManager.h"
 
 namespace RISCV {
-const int REGNUM = 32;
+constexpr int REGNUM = 32;
 extern const char* REGNAME[32];
-typedef uint32_t RegId;
+using RegId = uint32_t;
 
 enum Reg {
   REG_ZERO = 0,
@@ -119,12 +121,12 @@ enum Inst {
   SLLW = 51,
   SRLW = 52,
   SRAW = 53,
-  FMADD,
-  FMADDU,
-  FMSUB,
-  FMSUBU,
-  FNMADD,
-  FNMSUB,
+  FMADD = 54,
+  FMADDU = 55,
+  FMSUB = 56,
+  FMSUBU = 57,
+  FNMADD = 58,
+  FNMSUB = 59,
   UNKNOWN = -1,
 };
 
@@ -145,14 +147,16 @@ constexpr int OP_IMM32 = 0x1B;
 constexpr int OP_32 = 0x3B;
 constexpr int32_t OP_FMA = 0x0B;  // FMA opcode
 
-inline bool isBranch(const Inst& inst) {
+inline auto isBranch(const Inst& inst) -> bool {
   return inst == BEQ || inst == BNE || inst == BLT || inst == BGE ||
          inst == BLTU || inst == BGEU;
 }
 
-inline bool isJump(const Inst& inst) { return inst == JAL || inst == JALR; }
+inline auto isJump(const Inst& inst) -> bool {
+  return inst == JAL || inst == JALR;
+}
 
-inline bool isReadMem(const Inst& inst) {
+inline auto isReadMem(const Inst& inst) -> bool {
   return inst == LB || inst == LH || inst == LW || inst == LD || inst == LBU ||
          inst == LHU || inst == LWU;
 }
@@ -164,7 +168,7 @@ class Simulator {
   bool verbose;
   bool shouldDumpHistory;
   uint32_t pc;
-  uint32_t reg[RISCV::REGNUM];
+  std::array<int32_t, RISCV::REGNUM> reg;
   uint32_t stackBase;
   uint32_t maximumStackSize;
   MemoryManager* memory;
@@ -173,7 +177,7 @@ class Simulator {
   Simulator(MemoryManager* memory, BranchPredictor* predictor);
   ~Simulator();
 
-  void initStack(uint32_t baseaddr, uint32_t maxSize);
+  void initStack(const uint32_t& baseaddr, const uint32_t& maxSize);
 
   [[noreturn]] void simulate();
 
@@ -200,17 +204,20 @@ class Simulator {
     uint32_t stall;
 
     // Registers
+    RISCV::RegId dest;
     RISCV::RegId rs1;
     RISCV::RegId rs2;
     RISCV::RegId rs3;
 
-    uint32_t pc;
-    RISCV::Inst inst;
+    // True values
     int32_t op1;
     int32_t op2;
     int32_t op3;
-    RISCV::RegId dest;
     int32_t offset;
+
+    uint32_t pc;
+    RISCV::Inst inst;
+
     bool predictedBranch;
     uint32_t
         predictedPC;  // for branch prediction module, predicted PC destination
@@ -283,9 +290,9 @@ class Simulator {
   void memoryAccess();
   void writeBack();
 
-  int32_t handleSystemCall(int32_t op1, int32_t op2);
+  auto handleSystemCall(int32_t op1, int32_t op2) -> int32_t;
 
-  std::string getRegInfoStr();
+  auto getRegInfoStr() -> std::string;
   void panic(const char* format, ...);
 };
 

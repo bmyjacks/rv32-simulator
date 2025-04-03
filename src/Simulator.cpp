@@ -61,42 +61,44 @@ const char* INSTNAME[]{
 
 using namespace RISCV;
 
-Simulator::Simulator(MemoryManager* memory, BranchPredictor* predictor) {
-  this->memory = memory;
-  this->branchPredictor = predictor;
-  this->pc = 0;
-  for (int i = 0; i < REGNUM; ++i) {
-    this->reg[i] = 0;
-  }
+Simulator::Simulator(MemoryManager* memory, BranchPredictor* predictor)
+    : isSingleStep(false),
+      verbose(false),
+      shouldDumpHistory(false),
+      pc(0),
+      reg(),
+      stackBase(0),
+      maximumStackSize(0),
+      memory(memory),
+      branchPredictor(predictor),
+      fReg(),
+      fRegNew(),
+      dReg(),
+      dRegNew(),
+      eReg(),
+      eRegNew(),
+      mReg(),
+      mRegNew(),
+      executeWriteBack(false),
+      executeWBReg(-1),
+      memoryWriteBack(false),
+      memoryWBReg(-1),
+      history() {
+  this->fReg.bubble = true;
+  this->dReg.bubble = true;
+  this->eReg.bubble = true;
+  this->mReg.bubble = true;
 }
 
 Simulator::~Simulator() = default;
 
-void Simulator::initStack(uint32_t baseaddr, uint32_t maxSize) {
+void Simulator::initStack(const uint32_t& baseaddr, const uint32_t& maxSize) {
   this->reg[REG_SP] = baseaddr;
   this->stackBase = baseaddr;
   this->maximumStackSize = maxSize;
 }
 
-// Simulation function
 [[noreturn]] void Simulator::simulate() {
-  // Initialize pipeline registers
-  memset(&this->fReg, 0, sizeof(this->fReg));
-  memset(&this->fRegNew, 0, sizeof(this->fRegNew));
-  memset(&this->dReg, 0, sizeof(this->dReg));
-  memset(&this->dRegNew, 0, sizeof(this->dReg));
-  memset(&this->eReg, 0, sizeof(this->eReg));
-  memset(&this->eRegNew, 0, sizeof(this->eRegNew));
-  memset(&this->mReg, 0, sizeof(this->mReg));
-  memset(&this->mRegNew, 0, sizeof(this->mRegNew));
-
-  // Insert Bubble to later pipeline stages
-  fReg.bubble = true;
-  dReg.bubble = true;
-  eReg.bubble = true;
-  mReg.bubble = true;
-
-  // Main Simulation Loop
   while (true) {
     this->reg[REG_ZERO] = 0;  // Register 0 is always zero
 
@@ -117,29 +119,33 @@ void Simulator::initStack(uint32_t baseaddr, uint32_t maxSize) {
     this->memoryAccess();
     this->writeBack();
 
-    if (!this->fReg.stall)
+    if (this->fReg.stall == 0U) {
       this->fReg = this->fRegNew;
-    else
+    } else {
       this->fReg.stall--;
-    if (!this->dReg.stall)
+    }
+    if (this->dReg.stall == 0U) {
       this->dReg = this->dRegNew;
-    else
+    } else {
       this->dReg.stall--;
+    }
     this->eReg = this->eRegNew;
     this->mReg = this->mRegNew;
-    memset(&this->fRegNew, 0, sizeof(this->fRegNew));
-    memset(&this->dRegNew, 0, sizeof(this->dRegNew));
-    memset(&this->eRegNew, 0, sizeof(this->eRegNew));
-    memset(&this->mRegNew, 0, sizeof(this->mRegNew));
 
-    // The Branch perdiction happens here to avoid strange bugs in branch
+    fRegNew = {};
+    dRegNew = {};
+    eRegNew = {};
+    mRegNew = {};
+
+    // The Branch prediction happens here to avoid strange bugs in branch
     // prediction
-    if (!this->dReg.bubble && !this->dReg.stall && !this->fReg.stall &&
-        this->dReg.predictedBranch) {
+    if (!this->dReg.bubble && (this->dReg.stall == 0U) &&
+        (this->fReg.stall == 0U) && this->dReg.predictedBranch) {
       this->pc = this->dReg.predictedPC;
     }
 
-    this->history.cycleCount++;
+    this->history.cycleCount++;  // Increment cycle count
+
     this->history.regRecord.push_back(this->getRegInfoStr());
     if (this->history.regRecord.size() >= 100000) {
       // Avoid using up memory
