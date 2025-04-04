@@ -5,59 +5,11 @@
 
 #include "Simulator.h"
 
-#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <string>
 
 #include "Debug.h"
-
-namespace RISCV {
-const char* REGNAME[32] = {
-    "zero",  // x0
-    "ra",    // x1
-    "sp",    // x2
-    "gp",    // x3
-    "tp",    // x4
-    "t0",    // x5
-    "t1",    // x6
-    "t2",    // x7
-    "s0",    // x8
-    "s1",    // x9
-    "a0",    // x10
-    "a1",    // x11
-    "a2",    // x12
-    "a3",    // x13
-    "a4",    // x14
-    "a5",    // x15
-    "a6",    // x16
-    "a7",    // x17
-    "s2",    // x18
-    "s3",    // x19
-    "s4",    // x20
-    "s5",    // x21
-    "s6",    // x22
-    "s7",    // x23
-    "s8",    // x24
-    "s9",    // x25
-    "s10",   // x26
-    "s11",   // x27
-    "t3",    // x28
-    "t4",    // x29
-    "t5",    // x30
-    "t6",    // x31
-};
-
-const char* INSTNAME[]{
-    "lui",   "auipc",  "jal",    "jalr",  "beq",  "bne",  "blt",   "bge",
-    "bltu",  "bgeu",   "lb",     "lh",    "lw",   "ld",   "lbu",   "lhu",
-    "sb",    "sh",     "sw",     "sd",    "addi", "slti", "sltiu", "xori",
-    "ori",   "andi",   "slli",   "srli",  "srai", "add",  "sub",   "sll",
-    "slt",   "sltu",   "xor",    "srl",   "sra",  "or",   "and",   "ecall",
-    "addiw", "mul",    "mulh",   "div",   "rem",  "lwu",  "slliw", "srliw",
-    "sraiw", "addw",   "subw",   "sllw",  "srlw", "sraw", "fmadd", "fmaddu",
-    "fmsub", "fmsubu", "fnmadd", "fnmsub"};
-}  // namespace RISCV
 
 using namespace RISCV;
 
@@ -65,6 +17,7 @@ Simulator::Simulator(MemoryManager* memory, BranchPredictor* predictor)
     : isSingleStep(false),
       verbose(false),
       shouldDumpHistory(false),
+      dataForwarding(true),
       pc(0),
       reg(),
       stackBase(0),
@@ -81,8 +34,6 @@ Simulator::Simulator(MemoryManager* memory, BranchPredictor* predictor)
       mRegNew(),
       executeWriteBack(false),
       executeWBReg(-1),
-      memoryWriteBack(false),
-      memoryWBReg(-1),
       history() {
   this->fReg.bubble = true;
   this->dReg.bubble = true;
@@ -93,44 +44,42 @@ Simulator::Simulator(MemoryManager* memory, BranchPredictor* predictor)
 Simulator::~Simulator() = default;
 
 void Simulator::initStack(const uint32_t& baseaddr, const uint32_t& maxSize) {
-  this->reg[REG_SP] = baseaddr;
+  this->reg.at(REG_SP) = baseaddr;
   this->stackBase = baseaddr;
   this->maximumStackSize = maxSize;
 }
 
 [[noreturn]] void Simulator::simulate() {
   while (true) {
-    this->reg[REG_ZERO] = 0;  // Register 0 is always zero
+    this->reg.at(REG_ZERO) = 0U;  // Register 0 is always zero
 
     if (this->reg[REG_SP] < this->stackBase - this->maximumStackSize) {
-      this->panic("Stack Overflow!\n");
+      // this->panic("Stack Overflow!\n");
+      std::cerr << "Stack Overflow!\n";
     }
 
     this->executeWriteBack = false;
     this->executeWBReg = -1;
-    this->memoryWriteBack = false;
-    this->memoryWBReg = -1;
 
-    // THE EXECUTION ORDER of these functions are important!!!
-    // Changing them will introduce strange bugs
+    this->writeBack();
     this->fetch();
     this->decode();
     this->execute();
     this->memoryAccess();
-    this->writeBack();
 
     if (this->fReg.stall == 0U) {
       this->fReg = this->fRegNew;
     } else {
       this->fReg.stall--;
+      this->pc -= this->fReg.len;  // Rollback PC if stalled
     }
     if (this->dReg.stall == 0U) {
       this->dReg = this->dRegNew;
     } else {
       this->dReg.stall--;
     }
-    this->eReg = this->eRegNew;
-    this->mReg = this->mRegNew;
+    this->eReg = this->eRegNew;  // Execute stage would not stall
+    this->mReg = this->mRegNew;  // Memory stage would not stall
 
     fRegNew = {};
     dRegNew = {};
@@ -146,11 +95,13 @@ void Simulator::initStack(const uint32_t& baseaddr, const uint32_t& maxSize) {
 
     this->history.cycleCount++;  // Increment cycle count
 
-    this->history.regRecord.push_back(this->getRegInfoStr());
-    if (this->history.regRecord.size() >= 100000) {
-      // Avoid using up memory
-      this->history.regRecord.clear();
-      this->history.instRecord.clear();
+    if (shouldDumpHistory) {
+      this->history.regRecord.push_back(this->getRegInfoStr());
+      if (this->history.regRecord.size() >= 100000) {
+        // Avoid using up memory
+        this->history.regRecord.clear();
+        this->history.instRecord.clear();
+      }
     }
 
     if (verbose) {
@@ -171,19 +122,23 @@ void Simulator::initStack(const uint32_t& baseaddr, const uint32_t& maxSize) {
 
 void Simulator::fetch() {
   if (this->pc % 2 != 0) {
-    this->panic("Illegal PC 0x%x!\n", this->pc);
+    // this->panic("Illegal PC 0x%x!\n", this->pc);
+    std::cerr << "Illegal PC 0x" << std::hex << this->pc << "!\n";
   }
 
-  const uint32_t inst = this->memory->getInt(this->pc);
+  const uint32_t instruction = this->memory->getInt(this->pc);
   constexpr uint32_t len = 4;
 
   if (this->verbose) {
-    printf("Fetched instruction 0x%.8x at address 0x%llx\n", inst, this->pc);
+    // printf("Fetched instruction 0x%.8x at address 0x%llx\n", instruction,
+    // this->pc);
+    std::cout << "Fetched instruction: 0x" << std::hex << instruction
+              << " at 0x" << std::hex << this->pc << '\n';
   }
 
   this->fRegNew.bubble = false;
-  this->fRegNew.stall = 0;
-  this->fRegNew.inst = inst;
+  // this->fRegNew.stall = 0; // Should not change this->fReg.stall
+  this->fRegNew.inst = instruction;
   this->fRegNew.len = len;
   this->fRegNew.pc = this->pc;
 
@@ -196,13 +151,12 @@ void Simulator::decode() {
     if (verbose) {
       std::cout << "Decode: Stall\n";
     }
-    this->pc -= this->fReg.len;  // Rollback PC
     return;
   }
 
   // Detect IF bubble
   if (this->fReg.bubble ||
-      this->fReg.inst == 0U) {  // If IF is bubbled or instruction is 0
+      this->fReg.inst == 0U) {  // If IF stage is bubbled or instruction is 0
     if (verbose) {
       std::cout << "Decode: Bubble\n";
     }
@@ -217,7 +171,7 @@ void Simulator::decode() {
   std::string op2Str;
   std::string op3Str;
   std::string offsetStr;
-  Inst instructionType = UNKNOWN;
+  Instruction instructionType = UNKNOWN;
   const uint32_t instruction = this->fReg.inst;
 
   // True numbers
@@ -228,9 +182,9 @@ void Simulator::decode() {
 
   // Register id
   RegId destination = 0;
-  RegId reg1 = 0;
-  RegId reg2 = 0;
-  RegId reg3 = 0;  // For FMA instructions
+  RegId reg1 = -1;
+  RegId reg2 = -1;
+  RegId reg3 = -1;  // For FMA instructions
 
   const uint32_t opcode = instruction & 0x7F;
   const uint32_t funct3 = (instruction >> 12) & 0x7;
@@ -260,9 +214,9 @@ void Simulator::decode() {
 
   switch (opcode) {
     case OP_FMA: {
-      op1 = this->reg[rs1];
-      op2 = this->reg[rs2];
-      op3 = this->reg[rs3];
+      op1 = this->reg.at(rs1);
+      op2 = this->reg.at(rs2);
+      op3 = this->reg.at(rs3);
 
       reg1 = rs1;
       reg2 = rs2;
@@ -318,10 +272,10 @@ void Simulator::decode() {
         default:;
       }
 
-      op1Str = REGNAME[rs1];
-      op2Str = REGNAME[rs2];
-      op3Str = REGNAME[rs3];
-      destinationStr = REGNAME[rd];
+      op1Str = REGISTER_NAME[rs1];
+      op2Str = REGISTER_NAME[rs2];
+      op3Str = REGISTER_NAME[rs3];
+      destinationStr = REGISTER_NAME[rd];
       instructionStr = instructionName + " " + destinationStr + "," + op1Str +
                        "," + op2Str + "," + op3Str;
 
@@ -429,9 +383,9 @@ void Simulator::decode() {
         default:
           this->panic("Unknown Funct3 field %x\n", funct3);
       }
-      op1Str = REGNAME[rs1];
-      op2Str = REGNAME[rs2];
-      destinationStr = REGNAME[rd];
+      op1Str = REGISTER_NAME[rs1];
+      op2Str = REGISTER_NAME[rs2];
+      destinationStr = REGISTER_NAME[rd];
       instructionStr =
           instructionName + " " + destinationStr + "," + op1Str + "," + op2Str;
       break;
@@ -487,9 +441,9 @@ void Simulator::decode() {
         default:
           this->panic("Unknown Funct3 field %x\n", funct3);
       }
-      op1Str = REGNAME[rs1];
+      op1Str = REGISTER_NAME[rs1];
       op2Str = std::to_string(op2);
-      destinationStr = REGNAME[destination];
+      destinationStr = REGISTER_NAME[destination];
       instructionStr =
           instructionName + " " + destinationStr + "," + op1Str + "," + op2Str;
       break;
@@ -501,7 +455,7 @@ void Simulator::decode() {
       instructionName = "lui";
       instructionType = LUI;
       op1Str = std::to_string(imm_u);
-      destinationStr = REGNAME[destination];
+      destinationStr = REGISTER_NAME[destination];
       instructionStr = instructionName + " " + destinationStr + "," + op1Str;
       break;
     case OP_AUIPC:
@@ -512,7 +466,7 @@ void Simulator::decode() {
       instructionName = "auipc";
       instructionType = AUIPC;
       op1Str = std::to_string(imm_u);
-      destinationStr = REGNAME[destination];
+      destinationStr = REGISTER_NAME[destination];
       instructionStr = instructionName + " " + destinationStr + "," + op1Str;
       break;
     case OP_JAL:
@@ -523,7 +477,7 @@ void Simulator::decode() {
       instructionName = "jal";
       instructionType = JAL;
       op1Str = std::to_string(imm_uj);
-      destinationStr = REGNAME[destination];
+      destinationStr = REGISTER_NAME[destination];
       instructionStr = instructionName + " " + destinationStr + "," + op1Str;
       break;
     case OP_JALR:
@@ -533,9 +487,9 @@ void Simulator::decode() {
       destination = rd;
       instructionName = "jalr";
       instructionType = JALR;
-      op1Str = REGNAME[rs1];
+      op1Str = REGISTER_NAME[rs1];
       op2Str = std::to_string(op2);
-      destinationStr = REGNAME[destination];
+      destinationStr = REGISTER_NAME[destination];
       instructionStr =
           instructionName + " " + destinationStr + "," + op1Str + "," + op2Str;
       break;
@@ -573,8 +527,8 @@ void Simulator::decode() {
         default:
           this->panic("Unknown funct3 0x%x at OP_BRANCH\n", funct3);
       }
-      op1Str = REGNAME[rs1];
-      op2Str = REGNAME[rs2];
+      op1Str = REGISTER_NAME[rs1];
+      op2Str = REGISTER_NAME[rs2];
       offsetStr = std::to_string(offset);
       instructionStr =
           instructionName + " " + op1Str + "," + op2Str + "," + offsetStr;
@@ -605,8 +559,8 @@ void Simulator::decode() {
         default:
           this->panic("Unknown funct3 0x%x for OP_STORE\n", funct3);
       }
-      op1Str = REGNAME[rs1];
-      op2Str = REGNAME[rs2];
+      op1Str = REGISTER_NAME[rs1];
+      op2Str = REGISTER_NAME[rs2];
       offsetStr = std::to_string(offset);
       instructionStr =
           instructionName + " " + op2Str + "," + offsetStr + "(" + op1Str + ")";
@@ -648,9 +602,9 @@ void Simulator::decode() {
         default:
           this->panic("Unknown funct3 0x%x for OP_LOAD\n", funct3);
       }
-      op1Str = REGNAME[rs1];
+      op1Str = REGISTER_NAME[rs1];
       op2Str = std::to_string(op2);
-      destinationStr = REGNAME[rd];
+      destinationStr = REGISTER_NAME[rd];
       instructionStr = instructionName + " " + destinationStr + "," + op2Str +
                        "(" + op1Str + ")";
       break;
@@ -698,9 +652,9 @@ void Simulator::decode() {
         default:
           this->panic("Unknown funct3 0x%x for OP_ADDIW\n", funct3);
       }
-      op1Str = REGNAME[rs1];
+      op1Str = REGISTER_NAME[rs1];
       op2Str = std::to_string(op2);
-      destinationStr = REGNAME[rd];
+      destinationStr = REGISTER_NAME[rd];
       instructionStr =
           instructionName + " " + destinationStr + "," + op1Str + "," + op2Str;
       break;
@@ -794,28 +748,28 @@ void Simulator::decode() {
 }
 
 void Simulator::execute() {
-  if (this->dReg.stall != 0) {
+  if (this->dReg.stall != 0U) {
     if (verbose) {
-      printf("Execute: Stall\n");
+      std::cout << "Execute: Stall\n";
     }
     this->eRegNew.bubble = true;
     return;
   }
   if (this->dReg.bubble) {
     if (verbose) {
-      printf("Execute: Bubble\n");
+      std::cout << "Execute: Bubble\n";
     }
     this->eRegNew.bubble = true;
     return;
   }
 
   if (verbose) {
-    printf("Execute: %s\n", INSTNAME[this->dReg.inst]);
+    std::cout << "Execute: " << INSTNAME.at(this->dReg.inst) << '\n';
   }
 
-  this->history.instCount++;
+  this->history.instructionCount++;
 
-  const Inst inst = this->dReg.inst;
+  const Instruction inst = this->dReg.inst;
   int32_t op1 = this->dReg.op1;
   int32_t op2 = this->dReg.op2;
   int32_t op3 = this->dReg.op3;
@@ -1112,7 +1066,6 @@ void Simulator::execute() {
         this->dRegNew.rs3 == destReg) {
       this->fRegNew.stall = 2;
       this->dRegNew.stall = 2;
-      this->eRegNew.bubble = true;
       this->history.cycleCount--;  // WHY???
       this->history.memoryHazardCount++;
     }
@@ -1125,29 +1078,35 @@ void Simulator::execute() {
       this->executeWBReg = destReg;
       this->executeWriteBack = true;
       this->history.dataHazardCount++;
-      if (verbose)
-        printf("  Forward Data %s to Decode op1\n", REGNAME[destReg]);
+      if (verbose) {
+        std::cout << "  Forward Data " << REGISTER_NAME.at(destReg)
+                  << " to Decode op1\n";
+      }
     }
     if (this->dRegNew.rs2 == destReg) {
       this->dRegNew.op2 = out;
       this->executeWBReg = destReg;
       this->executeWriteBack = true;
       this->history.dataHazardCount++;
-      if (verbose)
-        printf("  Forward Data %s to Decode op2\n", REGNAME[destReg]);
+      if (verbose) {
+        std::cout << "  Forward Data " << REGISTER_NAME.at(destReg)
+                  << " to Decode op2\n";
+      }
     }
     if (this->dRegNew.rs3 == destReg) {
       this->dRegNew.op3 = out;
       this->executeWBReg = destReg;
       this->executeWriteBack = true;
       this->history.dataHazardCount++;
-      if (verbose)
-        printf("  Forward Data %s to Decode op3\n", REGNAME[destReg]);
+      if (verbose) {
+        std::cout << "  Forward Data " << REGISTER_NAME.at(destReg)
+                  << " to Decode op3\n";
+      }
     }
   }
 
   this->eRegNew.bubble = false;
-  this->eRegNew.stall = false;
+  this->eRegNew.stall = 0;
   this->eRegNew.pc = dRegPC;
   this->eRegNew.inst = inst;
   this->eRegNew.op1 = op1;  // for jalr
@@ -1164,21 +1123,17 @@ void Simulator::execute() {
 
 void Simulator::memoryAccess() {
   if (this->eReg.stall) {
-    if (verbose) {
-      printf("Memory Access: Stall\n");
-    }
+    this->verbosePrint("Memory Access: Stall\n");
     return;
   }
-  if (this->eReg.bubble) {
-    if (verbose) {
-      printf("Memory Access: Bubble\n");
-    }
+  if (this->eReg.bubble) {  // Ex bubble pass to Mem
     this->mRegNew.bubble = true;
+    this->verbosePrint("Memory Access: Bubble\n");
     return;
   }
 
   uint32_t eRegPC = this->eReg.pc;
-  Inst inst = this->eReg.inst;
+  Instruction inst = this->eReg.inst;
   bool writeReg = this->eReg.writeReg;
   RegId destReg = this->eReg.destReg;
   int32_t op1 = this->eReg.op1;  // for jalr
@@ -1212,50 +1167,47 @@ void Simulator::memoryAccess() {
   }
 
   if (!good) {
-    this->panic("Invalid Mem Access!\n");
+    std::cerr << "Invalid Mem Access!\n";
   }
 
   if (readMem) {
     switch (memLen) {
       case 1:
         if (readSignExt) {
-          out = (int32_t)this->memory->getByte(out, &cycles);
+          out = static_cast<int32_t>(this->memory->getByte(out, &cycles));
         } else {
-          out = (uint32_t)this->memory->getByte(out, &cycles);
+          out = static_cast<uint32_t>(this->memory->getByte(out, &cycles));
         }
         break;
       case 2:
         if (readSignExt) {
-          out = (int32_t)this->memory->getShort(out, &cycles);
+          out = static_cast<int32_t>(this->memory->getShort(out, &cycles));
         } else {
-          out = (uint32_t)this->memory->getShort(out, &cycles);
+          out = static_cast<uint32_t>(this->memory->getShort(out, &cycles));
         }
         break;
       case 4:
         if (readSignExt) {
-          out = (int32_t)this->memory->getInt(out, &cycles);
+          out = static_cast<int32_t>(this->memory->getInt(out, &cycles));
         } else {
-          out = (uint32_t)this->memory->getInt(out, &cycles);
+          out = this->memory->getInt(out, &cycles);
         }
         break;
-      case 8:
-        if (readSignExt) {
-          out = (int32_t)this->memory->getLong(out, &cycles);
-        } else {
-          out = (uint32_t)this->memory->getLong(out, &cycles);
-        }
-        break;
+      // case 8:
+      //   if (readSignExt) {
+      //     out = static_cast<int32_t>(this->memory->getLong(out, &cycles));
+      //   } else {
+      //     out = static_cast<uint32_t>(this->memory->getLong(out, &cycles));
+      //   }
+      //   break;
       default:
-        this->panic("Unknown memLen %d\n", memLen);
+        std::cerr << "Unknown memLen " << memLen << '\n';
     }
   }
 
-  // if (cycles != 0) printf("%d\n", cycles);
   this->history.cycleCount += cycles;
 
-  if (verbose) {
-    printf("Memory Access: %s\n", INSTNAME[inst]);
-  }
+  this->verbosePrint(std::format("Memory Access: {}: ", INSTNAME.at(inst)));
 
   // Check for data hazard and forward data to ID stage
   if (writeReg && destReg != REG_ZERO) {
@@ -1264,11 +1216,9 @@ void Simulator::memoryAccess() {
       if (!this->executeWriteBack ||
           (this->executeWriteBack && this->executeWBReg != destReg)) {
         this->dRegNew.op1 = out;
-        this->memoryWriteBack = true;
-        this->memoryWBReg = destReg;
         this->history.dataHazardCount++;
         if (verbose)
-          printf("  Forward Data %s to Decode op1\n", REGNAME[destReg]);
+          printf("  Forward Data %s to Decode op1\n", REGISTER_NAME[destReg]);
       }
     }
     if (this->dRegNew.rs2 == destReg) {
@@ -1276,11 +1226,9 @@ void Simulator::memoryAccess() {
       if (!this->executeWriteBack ||
           (this->executeWriteBack && this->executeWBReg != destReg)) {
         this->dRegNew.op2 = out;
-        this->memoryWriteBack = true;
-        this->memoryWBReg = destReg;
         this->history.dataHazardCount++;
         if (verbose)
-          printf("  Forward Data %s to Decode op2\n", REGNAME[destReg]);
+          printf("  Forward Data %s to Decode op2\n", REGISTER_NAME[destReg]);
       }
     }
     if (this->dRegNew.rs3 == destReg) {
@@ -1288,11 +1236,9 @@ void Simulator::memoryAccess() {
       if (!this->executeWriteBack ||
           (this->executeWriteBack && this->executeWBReg != destReg)) {
         this->dRegNew.op3 = out;
-        this->memoryWriteBack = true;
-        this->memoryWBReg = destReg;
         this->history.dataHazardCount++;
         if (verbose)
-          printf("  Forward Data %s to Decode op3\n", REGNAME[destReg]);
+          printf("  Forward Data %s to Decode op3\n", REGISTER_NAME[destReg]);
       }
     }
 
@@ -1308,16 +1254,14 @@ void Simulator::memoryAccess() {
         this->dReg.op3 = out;
       }
 
-      this->memoryWriteBack = true;
-      this->memoryWBReg = destReg;
       this->history.dataHazardCount++;
       if (verbose)
-        printf("  Forward Data %s to Decode op2\n", REGNAME[destReg]);
+        printf("  Forward Data %s to Decode op2\n", REGISTER_NAME[destReg]);
     }
   }
 
   this->mRegNew.bubble = false;
-  this->mRegNew.stall = false;
+  this->mRegNew.stall = 0;
   this->mRegNew.pc = eRegPC;
   this->mRegNew.inst = inst;
   this->mRegNew.op1 = op1;
@@ -1327,81 +1271,22 @@ void Simulator::memoryAccess() {
   this->mRegNew.out = out;
 }
 
-// WB stage
 void Simulator::writeBack() {
   if (this->mReg.stall != 0) {
-    if (verbose) {
-      printf("WriteBack: stall\n");
-    }
+    this->verbosePrint("WriteBack: Stall\n");
     return;
   }
   if (this->mReg.bubble) {
-    if (verbose) {
-      printf("WriteBack: Bubble\n");
-    }
+    this->verbosePrint("WriteBack: Bubble\n");
     return;
   }
 
-  if (verbose) {
-    printf("WriteBack: %s\n", INSTNAME[this->mReg.inst]);
-  }
+  this->verbosePrint(
+      std::format("WriteBack: {}\n", INSTNAME.at(this->mReg.inst)));
 
   if (this->mReg.writeReg && this->mReg.destReg != REG_ZERO) {
-    // Check for data hazard and forward data
-    if (this->dRegNew.rs1 == this->mReg.destReg) {
-      // Avoid overwriting recent data
-      if (!this->executeWriteBack ||
-          (this->executeWriteBack &&
-           this->executeWBReg != this->mReg.destReg)) {
-        if (!this->memoryWriteBack ||
-            (this->memoryWriteBack &&
-             this->memoryWBReg != this->mReg.destReg)) {
-          this->dRegNew.op1 = this->mReg.out;
-          this->history.dataHazardCount++;
-          if (verbose)
-            printf("  Forward Data %s to Decode op1\n",
-                   REGNAME[this->mReg.destReg]);
-        }
-      }
-    }
-    if (this->dRegNew.rs2 == this->mReg.destReg) {
-      // Avoid overwriting recent data
-      if (!this->executeWriteBack ||
-          (this->executeWriteBack &&
-           this->executeWBReg != this->mReg.destReg)) {
-        if (!this->memoryWriteBack ||
-            (this->memoryWriteBack &&
-             this->memoryWBReg != this->mReg.destReg)) {
-          this->dRegNew.op2 = this->mReg.out;
-          this->history.dataHazardCount++;
-          if (verbose)
-            printf("  Forward Data %s to Decode op2\n",
-                   REGNAME[this->mReg.destReg]);
-        }
-      }
-    }
-    if (this->dRegNew.rs3 == this->mReg.destReg) {
-      // Avoid overwriting recent data
-      if (!this->executeWriteBack ||
-          (this->executeWriteBack &&
-           this->executeWBReg != this->mReg.destReg)) {
-        if (!this->memoryWriteBack ||
-            (this->memoryWriteBack &&
-             this->memoryWBReg != this->mReg.destReg)) {
-          this->dRegNew.op3 = this->mReg.out;
-          this->history.dataHazardCount++;
-          if (verbose)
-            printf("  Forward Data %s to Decode op3\n",
-                   REGNAME[this->mReg.destReg]);
-        }
-      }
-    }
-
-    // Real Write Back
-    this->reg[this->mReg.destReg] = this->mReg.out;
+    this->reg.at(mReg.destReg) = this->mReg.out;
   }
-
-  // this->pc = this->mReg.pc;
 }
 
 int32_t Simulator::handleSystemCall(int32_t op1, int32_t op2) {
@@ -1449,7 +1334,7 @@ void Simulator::printInfo() {
   printf("------------ CPU STATE ------------\n");
   printf("PC: 0x%llx\n", this->pc);
   for (uint32_t i = 0; i < 32; ++i) {
-    printf("%s: 0x%.8llx(%lld) ", REGNAME[i], this->reg[i], this->reg[i]);
+    printf("%s: 0x%.8llx(%lld) ", REGISTER_NAME[i], this->reg[i], this->reg[i]);
     if (i % 4 == 3) printf("\n");
   }
   printf("-----------------------------------\n");
@@ -1457,10 +1342,10 @@ void Simulator::printInfo() {
 
 void Simulator::printStatistics() {
   printf("------------ STATISTICS -----------\n");
-  printf("Number of Instructions: %u\n", this->history.instCount);
+  printf("Number of Instructions: %u\n", this->history.instructionCount);
   printf("Number of Cycles: %u\n", this->history.cycleCount);
   printf("Avg Cycles per Instrcution: %.4f\n",
-         (float)this->history.cycleCount / this->history.instCount);
+         (float)this->history.cycleCount / this->history.instructionCount);
   printf("Branch Perdiction Accuacy: %.4f (Strategy: %s)\n",
          (float)this->history.predictedBranch /
              (this->history.predictedBranch + this->history.unpredictedBranch),
@@ -1480,7 +1365,8 @@ std::string Simulator::getRegInfoStr() {
   sprintf(buf, "PC: 0x%llx\n", this->pc);
   str += buf;
   for (uint32_t i = 0; i < 32; ++i) {
-    sprintf(buf, "%s: 0x%.8llx(%lld) ", REGNAME[i], this->reg[i], this->reg[i]);
+    sprintf(buf, "%s: 0x%.8llx(%lld) ", REGISTER_NAME[i], this->reg[i],
+            this->reg[i]);
     str += buf;
     if (i % 4 == 3) {
       str += "\n";
@@ -1523,4 +1409,10 @@ void Simulator::panic(const char* format, ...) {
   this->dumpHistory();
   fprintf(stderr, "Execution history and memory dump in dump.txt\n");
   exit(-1);
+}
+
+void Simulator::verbosePrint(const std::string& str) const {
+  // if (verbose) {
+  //   std::cout << str;
+  // }
 }

@@ -21,9 +21,10 @@ void printElfInfo(ELFIO::elfio* reader);
 void loadElfToMemory(ELFIO::elfio* reader, MemoryManager* memory);
 
 char* elfFile = nullptr;
-bool verbose = 0;
-bool isSingleStep = 0;
-bool dumpHistory = 0;
+bool verbose = false;
+bool isSingleStep = false;
+bool dumpHistory = false;
+bool dataForwarding = true;
 uint32_t stackBaseAddr = 0x80000000;
 uint32_t stackSize = 0x400000;
 MemoryManager memory;
@@ -90,6 +91,7 @@ auto main(const int argc, char** argv) -> int {
   simulator.isSingleStep = isSingleStep;
   simulator.verbose = verbose;
   simulator.shouldDumpHistory = dumpHistory;
+  simulator.dataForwarding = dataForwarding;
   simulator.branchPredictor->strategy = strategy;
   simulator.pc = reader.get_entry();
   simulator.initStack(stackBaseAddr, stackSize);
@@ -106,7 +108,7 @@ auto main(const int argc, char** argv) -> int {
   return 0;
 }
 
-bool parseParameters(int argc, char** argv) {
+auto parseParameters(const int argc, char** argv) -> bool {
   // Read Parameters
   for (int i = 1; i < argc; ++i) {
     if (argv[i][0] == '-') {
@@ -120,6 +122,10 @@ bool parseParameters(int argc, char** argv) {
         case 'd':
           dumpHistory = true;
           break;
+        case 'x': {
+          dataForwarding = false;
+          break;
+        }
         case 'b':
           if (i + 1 < argc) {
             std::string str = argv[i + 1];
@@ -154,12 +160,12 @@ bool parseParameters(int argc, char** argv) {
 }
 
 void printUsage() {
-  printf("Usage: Simulator riscv-elf-file [-v] [-s] [-d] [-b param]\n");
-  printf("Parameters: \n\t[-v] verbose output \n\t[-s] single step\n");
-  printf("\t[-d] dump memory and register trace to dump.txt\n");
-  printf(
-      "\t[-b param] branch perdiction strategy, accepted param AT, NT, "
-      "BTFNT, BPB\n");
+  std::cout << "Usage: Simulator riscv-elf-file [-v] [-s] [-d] [-b param]\n";
+  std::cout << "Parameters: \n\t[-v] verbose output \n\t[-s] single step\n";
+  std::cout << "\t[-d] dump memory and register trace to dump.txt\n";
+  std::cout
+      << "\t[-b param] branch perdiction strategy, accepted param AT, NT, "
+         "BTFNT, BPB\n";
 }
 
 void printElfInfo(ELFIO::elfio* reader) {

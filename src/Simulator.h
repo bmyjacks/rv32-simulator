@@ -9,55 +9,97 @@
 #define SIMULATOR_H
 
 #include <array>
-#include <cstdarg>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "BranchPredictor.h"
 #include "MemoryManager.h"
 
 namespace RISCV {
-constexpr int REGNUM = 32;
-extern const char* REGNAME[32];
-using RegId = uint32_t;
+constexpr std::uint8_t REGISTERS_COUNT = 32;
+constexpr std::array<std::string_view, REGISTERS_COUNT> REGISTER_NAME = {
+    "zero",  // x0
+    "ra",    // x1
+    "sp",    // x2
+    "gp",    // x3
+    "tp",    // x4
+    "t0",    // x5
+    "t1",    // x6
+    "t2",    // x7
+    "s0",    // x8
+    "s1",    // x9
+    "a0",    // x10
+    "a1",    // x11
+    "a2",    // x12
+    "a3",    // x13
+    "a4",    // x14
+    "a5",    // x15
+    "a6",    // x16
+    "a7",    // x17
+    "s2",    // x18
+    "s3",    // x19
+    "s4",    // x20
+    "s5",    // x21
+    "s6",    // x22
+    "s7",    // x23
+    "s8",    // x24
+    "s9",    // x25
+    "s10",   // x26
+    "s11",   // x27
+    "t3",    // x28
+    "t4",    // x29
+    "t5",    // x30
+    "t6",    // x31
+};
+constexpr std::array<std::string_view, 64> INSTNAME = {
+    "lui",   "auipc",  "jal",    "jalr",  "beq",  "bne",  "blt",   "bge",
+    "bltu",  "bgeu",   "lb",     "lh",    "lw",   "ld",   "lbu",   "lhu",
+    "sb",    "sh",     "sw",     "sd",    "addi", "slti", "sltiu", "xori",
+    "ori",   "andi",   "slli",   "srli",  "srai", "add",  "sub",   "sll",
+    "slt",   "sltu",   "xor",    "srl",   "sra",  "or",   "and",   "ecall",
+    "addiw", "mul",    "mulh",   "div",   "rem",  "lwu",  "slliw", "srliw",
+    "sraiw", "addw",   "subw",   "sllw",  "srlw", "sraw", "fmadd", "fmaddu",
+    "fmsub", "fmsubu", "fnmadd", "fnmsub"};
+using RegId = std::uint32_t;
 
-enum Reg {
+enum Reg : std::uint8_t {
   REG_ZERO = 0,
-  REG_RA = 1,
-  REG_SP = 2,
-  REG_GP = 3,
-  REG_TP = 4,
-  REG_T0 = 5,
-  REG_T1 = 6,
-  REG_T2 = 7,
-  REG_S0 = 8,
-  REG_S1 = 9,
-  REG_A0 = 10,
-  REG_A1 = 11,
-  REG_A2 = 12,
-  REG_A3 = 13,
-  REG_A4 = 14,
-  REG_A5 = 15,
-  REG_A6 = 16,
-  REG_A7 = 17,
-  REG_S2 = 18,
-  REG_S3 = 19,
-  REG_S4 = 20,
-  REG_S5 = 21,
-  REG_S6 = 22,
-  REG_S7 = 23,
-  REG_S8 = 24,
-  REG_S9 = 25,
-  REG_S10 = 26,
-  REG_S11 = 27,
-  REG_T3 = 28,
-  REG_T4 = 29,
-  REG_T5 = 30,
-  REG_T6 = 31,
+  REG_RA,
+  REG_SP,
+  REG_GP,
+  REG_TP,
+  REG_T0,
+  REG_T1,
+  REG_T2,
+  REG_S0,
+  REG_S,
+  REG_A0,
+  REG_A1,
+  REG_A2,
+  REG_A3,
+  REG_A4,
+  REG_A5,
+  REG_A6,
+  REG_A7,
+  REG_S2,
+  REG_S3,
+  REG_S4,
+  REG_S5,
+  REG_S6,
+  REG_S7,
+  REG_S8,
+  REG_S9,
+  REG_S10,
+  REG_S11,
+  REG_T3,
+  REG_T4,
+  REG_T5,
+  REG_T6,
 };
 
-enum InstType {
+enum InstructionType : std::uint8_t {
   R_TYPE,
   I_TYPE,
   S_TYPE,
@@ -66,99 +108,99 @@ enum InstType {
   UJ_TYPE,
 };
 
-enum Inst {
-  LUI = 0,
-  AUIPC = 1,
-  JAL = 2,
-  JALR = 3,
-  BEQ = 4,
-  BNE = 5,
-  BLT = 6,
-  BGE = 7,
-  BLTU = 8,
-  BGEU = 9,
-  LB = 10,
-  LH = 11,
-  LW = 12,
-  LD = 13,
-  LBU = 14,
-  LHU = 15,
-  SB = 16,
-  SH = 17,
-  SW = 18,
-  SD = 19,
-  ADDI = 20,
-  SLTI = 21,
-  SLTIU = 22,
-  XORI = 23,
-  ORI = 24,
-  ANDI = 25,
-  SLLI = 26,
-  SRLI = 27,
-  SRAI = 28,
-  ADD = 29,
-  SUB = 30,
-  SLL = 31,
-  SLT = 32,
-  SLTU = 33,
-  XOR = 34,
-  SRL = 35,
-  SRA = 36,
-  OR = 37,
-  AND = 38,
-  ECALL = 39,
-  ADDIW = 40,
-  MUL = 41,
-  MULH = 42,
-  DIV = 43,
-  REM = 44,
-  LWU = 45,
-  SLLIW = 46,
-  SRLIW = 47,
-  SRAIW = 48,
-  ADDW = 49,
-  SUBW = 50,
-  SLLW = 51,
-  SRLW = 52,
-  SRAW = 53,
-  FMADD = 54,
-  FMADDU = 55,
-  FMSUB = 56,
-  FMSUBU = 57,
-  FNMADD = 58,
-  FNMSUB = 59,
+enum Instruction : std::int8_t {
   UNKNOWN = -1,
+  LUI,
+  AUIPC,
+  JAL,
+  JALR,
+  BEQ,
+  BNE,
+  BLT,
+  BGE,
+  BLTU,
+  BGEU,
+  LB,
+  LH,
+  LW,
+  LD,
+  LBU,
+  LHU,
+  SB,
+  SH,
+  SW,
+  SD,
+  ADDI,
+  SLTI,
+  SLTIU,
+  XORI,
+  ORI,
+  ANDI,
+  SLLI,
+  SRLI,
+  SRAI,
+  ADD,
+  SUB,
+  SLL,
+  SLT,
+  SLTU,
+  XOR,
+  SRL,
+  SRA,
+  OR,
+  AND,
+  ECALL,
+  ADDIW,
+  MUL,
+  MULH,
+  DIV,
+  REM,
+  LWU,
+  SLLIW,
+  SRLIW,
+  SRAIW,
+  ADDW,
+  SUBW,
+  SLLW,
+  SRLW,
+  SRAW,
+  FMADD,
+  FMADDU,
+  FMSUB,
+  FMSUBU,
+  FNMADD,
+  FNMSUB,
 };
 
-extern const char* INSTNAME[];
+enum OpCode : std::uint8_t {
+  OP_REG = 0x33,
+  OP_IMM = 0x13,
+  OP_LUI = 0x37,
+  OP_BRANCH = 0x63,
+  OP_STORE = 0x23,
+  OP_LOAD = 0x03,
+  OP_SYSTEM = 0x73,
+  OP_AUIPC = 0x17,
+  OP_JAL = 0x6F,
+  OP_JALR = 0x67,
+  OP_IMM32 = 0x1B,
+  OP_32 = 0x3B,
+  OP_FMA = 0x0B,  // FMA opcode
+};
 
-// Opcode field
-constexpr int OP_REG = 0x33;
-constexpr int OP_IMM = 0x13;
-constexpr int OP_LUI = 0x37;
-constexpr int OP_BRANCH = 0x63;
-constexpr int OP_STORE = 0x23;
-constexpr int OP_LOAD = 0x03;
-constexpr int OP_SYSTEM = 0x73;
-constexpr int OP_AUIPC = 0x17;
-constexpr int OP_JAL = 0x6F;
-constexpr int OP_JALR = 0x67;
-constexpr int OP_IMM32 = 0x1B;
-constexpr int OP_32 = 0x3B;
-constexpr int32_t OP_FMA = 0x0B;  // FMA opcode
-
-inline auto isBranch(const Inst& inst) -> bool {
-  return inst == BEQ || inst == BNE || inst == BLT || inst == BGE ||
-         inst == BLTU || inst == BGEU;
+inline auto isBranch(const Instruction& instruction) -> bool {
+  return instruction == BEQ || instruction == BNE || instruction == BLT ||
+         instruction == BGE || instruction == BLTU || instruction == BGEU;
 }
 
-inline auto isJump(const Inst& inst) -> bool {
-  return inst == JAL || inst == JALR;
+inline auto isJump(const Instruction& instruction) -> bool {
+  return instruction == JAL || instruction == JALR;
 }
 
-inline auto isReadMem(const Inst& inst) -> bool {
-  return inst == LB || inst == LH || inst == LW || inst == LD || inst == LBU ||
-         inst == LHU || inst == LWU;
+inline auto isReadMem(const Instruction& instruction) -> bool {
+  return instruction == LB || instruction == LH || instruction == LW ||
+         instruction == LD || instruction == LBU || instruction == LHU ||
+         instruction == LWU;
 }
 }  // namespace RISCV
 
@@ -167,8 +209,9 @@ class Simulator {
   bool isSingleStep;
   bool verbose;
   bool shouldDumpHistory;
+  bool dataForwarding;
   uint32_t pc;
-  std::array<int32_t, RISCV::REGNUM> reg;
+  std::array<int32_t, RISCV::REGISTERS_COUNT> reg;
   uint32_t stackBase;
   uint32_t maximumStackSize;
   MemoryManager* memory;
@@ -216,7 +259,7 @@ class Simulator {
     int32_t offset;
 
     uint32_t pc;
-    RISCV::Inst inst;
+    RISCV::Instruction inst;
 
     bool predictedBranch;
     uint32_t
@@ -230,7 +273,7 @@ class Simulator {
     uint32_t stall;
 
     uint32_t pc;
-    RISCV::Inst inst;
+    RISCV::Instruction inst;
     int32_t op1;
     int32_t op2;
     bool writeReg;
@@ -249,7 +292,7 @@ class Simulator {
     uint32_t stall;
 
     uint32_t pc;
-    RISCV::Inst inst;
+    RISCV::Instruction inst;
     int32_t op1;
     int32_t op2;
     int32_t out;
@@ -261,11 +304,9 @@ class Simulator {
   // To avoid older values(in MEM) overriding newer values(in EX)
   bool executeWriteBack;
   RISCV::RegId executeWBReg;
-  bool memoryWriteBack;
-  RISCV::RegId memoryWBReg;
 
   struct History {
-    uint32_t instCount;
+    uint32_t instructionCount;
     uint32_t cycleCount;
     uint32_t stalledCycleCount;
 
@@ -289,11 +330,13 @@ class Simulator {
   void execute();
   void memoryAccess();
   void writeBack();
+  void newWB();
 
   auto handleSystemCall(int32_t op1, int32_t op2) -> int32_t;
 
   auto getRegInfoStr() -> std::string;
   void panic(const char* format, ...);
+  void verbosePrint(const std::string& str) const;
 };
 
 #endif
