@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.31)
 project(RISCV-Simulator)
 
 set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
 
 
 include_directories(${CMAKE_SOURCE_DIR}/include)

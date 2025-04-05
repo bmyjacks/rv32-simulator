@@ -287,16 +287,11 @@ class Simulator {
   } eReg, eRegNew;
 
   struct MReg {
-    // Control Signals
     bool bubble;
-    uint32_t stall;
 
-    uint32_t pc;
     RISCV::Instruction inst;
-    int32_t op1;
-    int32_t op2;
     int32_t out;
-    bool writeReg;
+    bool enableWriteBack;
     RISCV::RegId destReg;
   } mReg, mRegNew;
 

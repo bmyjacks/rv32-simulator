@@ -1122,7 +1122,7 @@ void Simulator::execute() {
 }
 
 void Simulator::memoryAccess() {
-  if (this->eReg.stall) {
+  if (this->eReg.stall != 0U) {
     this->verbosePrint("Memory Access: Stall\n");
     return;
   }
@@ -1132,37 +1132,37 @@ void Simulator::memoryAccess() {
     return;
   }
 
-  uint32_t eRegPC = this->eReg.pc;
-  Instruction inst = this->eReg.inst;
-  bool writeReg = this->eReg.writeReg;
-  RegId destReg = this->eReg.destReg;
-  int32_t op1 = this->eReg.op1;  // for jalr
-  int32_t op2 = this->eReg.op2;  // for store
+  const Instruction inst = this->eReg.inst;
+  const bool enableWriteBack = this->eReg.writeReg;
+  const RegId destReg = this->eReg.destReg;
+  const int32_t op1 = this->eReg.op1;  // for jalr
+  const int32_t op2 = this->eReg.op2;  // for store
   int32_t out = this->eReg.out;
-  bool writeMem = this->eReg.writeMem;
-  bool readMem = this->eReg.readMem;
-  bool readSignExt = this->eReg.readSignExt;
-  uint32_t memLen = this->eReg.memLen;
+  const bool writeMem = this->eReg.writeMem;
+  const bool readMem = this->eReg.readMem;
+  const bool readSignExt = this->eReg.readSignExt;
+  const uint32_t memLen = this->eReg.memLen;
 
   bool good = true;
-  uint32_t cycles = 0;
+  uint32_t memoryOperationCycleCount = 0;
 
   if (writeMem) {
     switch (memLen) {
-      case 1:
-        good = this->memory->setByte(out, op2, &cycles);
+      case 1: {
+        good = this->memory->setByte(out, op2, &memoryOperationCycleCount);
         break;
-      case 2:
-        good = this->memory->setShort(out, op2, &cycles);
+      }
+      case 2: {
+        good = this->memory->setShort(out, op2, &memoryOperationCycleCount);
         break;
-      case 4:
-        good = this->memory->setInt(out, op2, &cycles);
+      }
+      case 4: {
+        good = this->memory->setInt(out, op2, &memoryOperationCycleCount);
         break;
-      case 8:
-        good = this->memory->setLong(out, op2, &cycles);
-        break;
-      default:
-        this->panic("Unknown memLen %d\n", memLen);
+      }
+      default: {
+        std::cerr << "Unknown memLen " << memLen << '\n';
+      }
     }
   }
 
@@ -1172,110 +1172,100 @@ void Simulator::memoryAccess() {
 
   if (readMem) {
     switch (memLen) {
-      case 1:
+      case 1: {
         if (readSignExt) {
-          out = static_cast<int32_t>(this->memory->getByte(out, &cycles));
+          out = static_cast<int32_t>(
+              this->memory->getByte(out, &memoryOperationCycleCount));
         } else {
-          out = static_cast<uint32_t>(this->memory->getByte(out, &cycles));
+          out = static_cast<uint32_t>(
+              this->memory->getByte(out, &memoryOperationCycleCount));
         }
         break;
-      case 2:
+      }
+      case 2: {
         if (readSignExt) {
-          out = static_cast<int32_t>(this->memory->getShort(out, &cycles));
+          out = static_cast<int32_t>(
+              this->memory->getShort(out, &memoryOperationCycleCount));
         } else {
-          out = static_cast<uint32_t>(this->memory->getShort(out, &cycles));
+          out = static_cast<uint32_t>(
+              this->memory->getShort(out, &memoryOperationCycleCount));
         }
         break;
-      case 4:
+      }
+      case 4: {
         if (readSignExt) {
-          out = static_cast<int32_t>(this->memory->getInt(out, &cycles));
+          out = static_cast<int32_t>(
+              this->memory->getInt(out, &memoryOperationCycleCount));
         } else {
-          out = this->memory->getInt(out, &cycles);
+          out = this->memory->getInt(out, &memoryOperationCycleCount);
         }
         break;
-      // case 8:
-      //   if (readSignExt) {
-      //     out = static_cast<int32_t>(this->memory->getLong(out, &cycles));
-      //   } else {
-      //     out = static_cast<uint32_t>(this->memory->getLong(out, &cycles));
-      //   }
-      //   break;
+      }
       default:
         std::cerr << "Unknown memLen " << memLen << '\n';
     }
   }
 
-  this->history.cycleCount += cycles;
+  this->history.cycleCount += memoryOperationCycleCount;
 
   this->verbosePrint(std::format("Memory Access: {}: ", INSTNAME.at(inst)));
 
-  // Check for data hazard and forward data to ID stage
-  if (writeReg && destReg != REG_ZERO) {
-    if (this->dRegNew.rs1 == destReg) {
-      // Avoid overwriting recent values
-      if (!this->executeWriteBack ||
-          (this->executeWriteBack && this->executeWBReg != destReg)) {
-        this->dRegNew.op1 = out;
-        this->history.dataHazardCount++;
-        if (verbose)
-          printf("  Forward Data %s to Decode op1\n", REGISTER_NAME[destReg]);
-      }
-    }
-    if (this->dRegNew.rs2 == destReg) {
-      // Avoid overwriting recent values
-      if (!this->executeWriteBack ||
-          (this->executeWriteBack && this->executeWBReg != destReg)) {
-        this->dRegNew.op2 = out;
-        this->history.dataHazardCount++;
-        if (verbose)
-          printf("  Forward Data %s to Decode op2\n", REGISTER_NAME[destReg]);
-      }
-    }
-    if (this->dRegNew.rs3 == destReg) {
-      // Avoid overwriting recent values
-      if (!this->executeWriteBack ||
-          (this->executeWriteBack && this->executeWBReg != destReg)) {
-        this->dRegNew.op3 = out;
-        this->history.dataHazardCount++;
-        if (verbose)
-          printf("  Forward Data %s to Decode op3\n", REGISTER_NAME[destReg]);
-      }
-    }
-
-    // Corner case of forwarding mem load data to stalled decode reg
-    if (this->dReg.stall != 0) {
-      if (this->dReg.rs1 == destReg) {
-        this->dReg.op1 = out;
-      }
-      if (this->dReg.rs2 == destReg) {
-        this->dReg.op2 = out;
-      }
-      if (this->dReg.rs3 == destReg) {
-        this->dReg.op3 = out;
+  if (enableWriteBack && destReg != REG_ZERO) {
+    if (dataForwarding) {
+      if (!this->executeWriteBack || this->executeWBReg != destReg) {
+        if (this->dRegNew.rs1 == destReg) {
+          this->dRegNew.op1 = out;
+          this->history.dataHazardCount++;
+          this->verbosePrint(std::format("  Forward Data {} to Decode op1\n",
+                                         REGISTER_NAME.at(destReg)));
+        }
+        if (this->dRegNew.rs2 == destReg) {
+          this->dRegNew.op2 = out;
+          this->history.dataHazardCount++;
+          this->verbosePrint(std::format("  Forward Data {} to Decode op2\n",
+                                         REGISTER_NAME.at(destReg)));
+        }
+        if (this->dRegNew.rs3 == destReg) {
+          this->dRegNew.op3 = out;
+          this->history.dataHazardCount++;
+          this->verbosePrint(std::format("  Forward Data {} to Decode op3\n",
+                                         REGISTER_NAME.at(destReg)));
+        }
       }
 
-      this->history.dataHazardCount++;
-      if (verbose)
-        printf("  Forward Data %s to Decode op2\n", REGISTER_NAME[destReg]);
+      // Corner case of forwarding mem load data to stalled decode reg
+      if (this->dReg.stall != 0U) {
+        if (this->dReg.rs1 == destReg) {
+          this->dReg.op1 = out;
+          this->history.dataHazardCount++;
+          this->verbosePrint(std::format("  Forward Data {} to Decode op1\n",
+                                         REGISTER_NAME.at(destReg)));
+        }
+        if (this->dReg.rs2 == destReg) {
+          this->dReg.op2 = out;
+          this->history.dataHazardCount++;
+          this->verbosePrint(std::format("  Forward Data {} to Decode op2\n",
+                                         REGISTER_NAME.at(destReg)));
+        }
+        if (this->dReg.rs3 == destReg) {
+          this->dReg.op3 = out;
+          this->history.dataHazardCount++;
+          this->verbosePrint(std::format("  Forward Data {} to Decode op3\n",
+                                         REGISTER_NAME.at(destReg)));
+        }
+      }
+    } else {  // w/o data forwarding
     }
   }
 
   this->mRegNew.bubble = false;
-  this->mRegNew.stall = 0;
-  this->mRegNew.pc = eRegPC;
   this->mRegNew.inst = inst;
-  this->mRegNew.op1 = op1;
-  this->mRegNew.op2 = op2;
   this->mRegNew.destReg = destReg;
-  this->mRegNew.writeReg = writeReg;
+  this->mRegNew.enableWriteBack = enableWriteBack;
   this->mRegNew.out = out;
 }
 
 void Simulator::writeBack() {
-  if (this->mReg.stall != 0) {
-    this->verbosePrint("WriteBack: Stall\n");
-    return;
-  }
   if (this->mReg.bubble) {
     this->verbosePrint("WriteBack: Bubble\n");
     return;
@@ -1284,7 +1274,7 @@ void Simulator::writeBack() {
   this->verbosePrint(
       std::format("WriteBack: {}\n", INSTNAME.at(this->mReg.inst)));
 
-  if (this->mReg.writeReg && this->mReg.destReg != REG_ZERO) {
+  if (this->mReg.enableWriteBack && this->mReg.destReg != REG_ZERO) {
     this->reg.at(mReg.destReg) = this->mReg.out;
   }
 }
@@ -1412,7 +1402,7 @@ void Simulator::panic(const char* format, ...) {
 }
 
 void Simulator::verbosePrint(const std::string& str) const {
-  // if (verbose) {
-  //   std::cout << str;
-  // }
+  if (verbose) {
+    std::cout << str;
+  }
 }
