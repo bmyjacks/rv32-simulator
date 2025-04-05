@@ -260,6 +260,7 @@ class Simulator {
 
     uint32_t pc;
     RISCV::Instruction inst;
+    std::string rawAssemblyInstruction;
 
     bool predictedBranch;
     uint32_t
@@ -272,6 +273,7 @@ class Simulator {
     bool bubble;
     uint32_t stall;
 
+    std::string rawAssemblyInstruction;
     uint32_t pc;
     RISCV::Instruction inst;
     int32_t op1;
@@ -290,6 +292,7 @@ class Simulator {
     bool bubble;
 
     RISCV::Instruction inst;
+    std::string rawAssemblyInstruction;
     int32_t out;
     bool enableWriteBack;
     RISCV::RegId destReg;

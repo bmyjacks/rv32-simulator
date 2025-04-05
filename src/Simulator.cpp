@@ -51,10 +51,10 @@ void Simulator::initStack(const uint32_t& baseaddr, const uint32_t& maxSize) {
 
 [[noreturn]] void Simulator::simulate() {
   while (true) {
+    this->verbosePrint("\n");
     this->reg.at(REG_ZERO) = 0U;  // Register 0 is always zero
 
     if (this->reg[REG_SP] < this->stackBase - this->maximumStackSize) {
-      // this->panic("Stack Overflow!\n");
       std::cerr << "Stack Overflow!\n";
     }
 
@@ -69,12 +69,15 @@ void Simulator::initStack(const uint32_t& baseaddr, const uint32_t& maxSize) {
 
     if (this->fReg.stall == 0U) {
       this->fReg = this->fRegNew;
+      this->verbosePrint("Assigned fRegNew to fReg\n");
     } else {
       this->fReg.stall--;
       this->pc -= this->fReg.len;  // Rollback PC if stalled
     }
+
     if (this->dReg.stall == 0U) {
       this->dReg = this->dRegNew;
+      this->verbosePrint("Assigned dRegNew to dReg\n");
     } else {
       this->dReg.stall--;
     }
@@ -105,7 +108,7 @@ void Simulator::initStack(const uint32_t& baseaddr, const uint32_t& maxSize) {
     }
 
     if (verbose) {
-      this->printInfo();
+      // this->printInfo();
     }
 
     if (this->isSingleStep) {
@@ -122,7 +125,6 @@ void Simulator::initStack(const uint32_t& baseaddr, const uint32_t& maxSize) {
 
 void Simulator::fetch() {
   if (this->pc % 2 != 0) {
-    // this->panic("Illegal PC 0x%x!\n", this->pc);
     std::cerr << "Illegal PC 0x" << std::hex << this->pc << "!\n";
   }
 
@@ -130,14 +132,11 @@ void Simulator::fetch() {
   constexpr uint32_t len = 4;
 
   if (this->verbose) {
-    // printf("Fetched instruction 0x%.8x at address 0x%llx\n", instruction,
-    // this->pc);
     std::cout << "Fetched instruction: 0x" << std::hex << instruction
               << " at 0x" << std::hex << this->pc << '\n';
   }
 
   this->fRegNew.bubble = false;
-  // this->fRegNew.stall = 0; // Should not change this->fReg.stall
   this->fRegNew.inst = instruction;
   this->fRegNew.len = len;
   this->fRegNew.pc = this->pc;
@@ -146,17 +145,7 @@ void Simulator::fetch() {
 }
 
 void Simulator::decode() {
-  // Detect IF stall
-  if (this->fReg.stall != 0) {
-    if (verbose) {
-      std::cout << "Decode: Stall\n";
-    }
-    return;
-  }
-
-  // Detect IF bubble
-  if (this->fReg.bubble ||
-      this->fReg.inst == 0U) {  // If IF stage is bubbled or instruction is 0
+  if (this->fReg.bubble) {
     if (verbose) {
       std::cout << "Decode: Bubble\n";
     }
@@ -732,7 +721,7 @@ void Simulator::decode() {
     }
   }
 
-  this->dRegNew.stall = 0;
+  this->dRegNew.rawAssemblyInstruction = instructionStr;
   this->dRegNew.bubble = false;
   this->dRegNew.rs1 = reg1;
   this->dRegNew.rs2 = reg2;
@@ -748,14 +737,7 @@ void Simulator::decode() {
 }
 
 void Simulator::execute() {
-  if (this->dReg.stall != 0U) {
-    if (verbose) {
-      std::cout << "Execute: Stall\n";
-    }
-    this->eRegNew.bubble = true;
-    return;
-  }
-  if (this->dReg.bubble) {
+  if (this->dReg.stall != 0U || this->dReg.bubble) {
     if (verbose) {
       std::cout << "Execute: Bubble\n";
     }
@@ -763,9 +745,8 @@ void Simulator::execute() {
     return;
   }
 
-  if (verbose) {
-    std::cout << "Execute: " << INSTNAME.at(this->dReg.inst) << '\n';
-  }
+  this->verbosePrint(
+      std::format("Execute: {}\n", this->dReg.rawAssemblyInstruction));
 
   this->history.instructionCount++;
 
@@ -1050,6 +1031,8 @@ void Simulator::execute() {
       this->dRegNew.bubble = true;
       this->history.unpredictedBranch++;
       this->history.controlHazardCount++;
+      this->verbosePrint(std::format("Control Hazard: PC = 0x{:x} -> 0x{:x}\n",
+                                     dRegPC, this->pc));
     }
     // this->dReg.pc: fetch original inst addr, not the modified one
     this->branchPredictor->update(this->dReg.pc, branch);
@@ -1060,55 +1043,80 @@ void Simulator::execute() {
     this->fRegNew.bubble = true;
     this->dRegNew.bubble = true;
     this->history.controlHazardCount++;
+    this->verbosePrint(std::format("Control Hazard: PC = 0x{:x} -> 0x{:x}\n",
+                                   dRegPC, this->pc));
   }
   if (isReadMem(inst)) {
     if (this->dRegNew.rs1 == destReg || this->dRegNew.rs2 == destReg ||
         this->dRegNew.rs3 == destReg) {
-      this->fRegNew.stall = 2;
-      this->dRegNew.stall = 2;
-      this->history.cycleCount--;  // WHY???
-      this->history.memoryHazardCount++;
+      if (dataForwarding) {
+        this->fRegNew.stall = 2;
+        this->dRegNew.stall = 2;
+        this->history.cycleCount--;  // WHY???
+        this->history.memoryHazardCount++;
+        this->verbosePrint(std::format(
+            "EXE stage detected data hazard (w/ data forwarding)\n"));
+      } else {
+        this->fRegNew.stall = 3;
+        this->dRegNew.stall = 3;
+        this->history.cycleCount--;  // WHY???
+        this->history.memoryHazardCount++;
+        this->verbosePrint(std::format(
+            "EXE stage detected data hazard (w/o data forwarding)\n"));
+      }
     }
   }
 
   // Check for data hazard and forward data
-  if (writeReg && destReg != 0 && !isReadMem(inst)) {
-    if (this->dRegNew.rs1 == destReg) {
-      this->dRegNew.op1 = out;
-      this->executeWBReg = destReg;
-      this->executeWriteBack = true;
-      this->history.dataHazardCount++;
-      if (verbose) {
-        std::cout << "  Forward Data " << REGISTER_NAME.at(destReg)
-                  << " to Decode op1\n";
+  if (writeReg && destReg != REG_ZERO && !isReadMem(inst)) {
+    if (dataForwarding) {
+      if (this->dRegNew.rs1 == destReg) {
+        this->dRegNew.op1 = out;
+        this->executeWBReg = destReg;
+        this->executeWriteBack = true;
+        this->history.dataHazardCount++;
+        if (verbose) {
+          std::cout << "  Forward Data " << REGISTER_NAME.at(destReg)
+                    << " to Decode op1\n";
+        }
       }
-    }
-    if (this->dRegNew.rs2 == destReg) {
-      this->dRegNew.op2 = out;
-      this->executeWBReg = destReg;
-      this->executeWriteBack = true;
-      this->history.dataHazardCount++;
-      if (verbose) {
-        std::cout << "  Forward Data " << REGISTER_NAME.at(destReg)
-                  << " to Decode op2\n";
+      if (this->dRegNew.rs2 == destReg) {
+        this->dRegNew.op2 = out;
+        this->executeWBReg = destReg;
+        this->executeWriteBack = true;
+        this->history.dataHazardCount++;
+        if (verbose) {
+          std::cout << "  Forward Data " << REGISTER_NAME.at(destReg)
+                    << " to Decode op2\n";
+        }
       }
-    }
-    if (this->dRegNew.rs3 == destReg) {
-      this->dRegNew.op3 = out;
-      this->executeWBReg = destReg;
-      this->executeWriteBack = true;
-      this->history.dataHazardCount++;
-      if (verbose) {
-        std::cout << "  Forward Data " << REGISTER_NAME.at(destReg)
-                  << " to Decode op3\n";
+      if (this->dRegNew.rs3 == destReg) {
+        this->dRegNew.op3 = out;
+        this->executeWBReg = destReg;
+        this->executeWriteBack = true;
+        this->history.dataHazardCount++;
+        if (verbose) {
+          std::cout << "  Forward Data " << REGISTER_NAME.at(destReg)
+                    << " to Decode op3\n";
+        }
+      }
+    } else {  // w/o data forwarding
+      if (this->dRegNew.rs1 == destReg || this->dRegNew.rs2 == destReg ||
+          this->dRegNew.rs3 == destReg) {
+        this->verbosePrint(
+            "EXE stage detected data hazard (w/o data forwarding)\n");
+        this->fReg.stall = 2;
+        this->dReg.stall = 2;
+        this->dReg.bubble = true;
+        this->history.dataHazardCount++;
       }
     }
   }
 
   this->eRegNew.bubble = false;
-  this->eRegNew.stall = 0;
   this->eRegNew.pc = dRegPC;
   this->eRegNew.inst = inst;
+  this->eRegNew.rawAssemblyInstruction = this->dReg.rawAssemblyInstruction;
   this->eRegNew.op1 = op1;  // for jalr
   this->eRegNew.op2 = op2;  // for store
   this->eRegNew.writeReg = writeReg;
@@ -1122,11 +1130,7 @@ void Simulator::execute() {
 }
 
 void Simulator::memoryAccess() {
-  if (this->eReg.stall != 0U) {
-    this->verbosePrint("Memory Access: Stall\n");
-    return;
-  }
-  if (this->eReg.bubble) {  // Ex bubble pass to Mem
+  if (this->eReg.stall != 0U || this->eReg.bubble) {  // Ex bubble pass to Mem
     this->mRegNew.bubble = true;
     this->verbosePrint("Memory Access: Bubble\n");
     return;
@@ -1135,7 +1139,7 @@ void Simulator::memoryAccess() {
   const Instruction inst = this->eReg.inst;
   const bool enableWriteBack = this->eReg.writeReg;
   const RegId destReg = this->eReg.destReg;
-  const int32_t op1 = this->eReg.op1;  // for jalr
+  // const int32_t op1 = this->eReg.op1;  // for jalr
   const int32_t op2 = this->eReg.op2;  // for store
   int32_t out = this->eReg.out;
   const bool writeMem = this->eReg.writeMem;
@@ -1208,10 +1212,11 @@ void Simulator::memoryAccess() {
 
   this->history.cycleCount += memoryOperationCycleCount;
 
-  this->verbosePrint(std::format("Memory Access: {}: ", INSTNAME.at(inst)));
+  this->verbosePrint(
+      std::format("Memory Access: {}\n", this->eReg.rawAssemblyInstruction));
 
   if (enableWriteBack && destReg != REG_ZERO) {
-    if (dataForwarding) {
+    if (dataForwarding) {  // w/ data forwarding
       if (!this->executeWriteBack || this->executeWBReg != destReg) {
         if (this->dRegNew.rs1 == destReg) {
           this->dRegNew.op1 = out;
@@ -1255,11 +1260,20 @@ void Simulator::memoryAccess() {
         }
       }
     } else {  // w/o data forwarding
+      if (this->dRegNew.rs1 == destReg || this->dRegNew.rs2 == destReg ||
+          this->dRegNew.rs3 == destReg) {
+        // this->dRegNew.stall = 1;  // Insert a stall in the decode stage
+        // this->fRegNew.stall = 1;  // Insert a stall in the fetch stage
+        // this->history.memoryHazardCount++;
+        this->verbosePrint(
+            "Memory Hazard: Stall inserted in Decode and Fetch stages\n");
+      }
     }
   }
 
   this->mRegNew.bubble = false;
   this->mRegNew.inst = inst;
+  this->mRegNew.rawAssemblyInstruction = this->eReg.rawAssemblyInstruction;
   this->mRegNew.destReg = destReg;
   this->mRegNew.enableWriteBack = enableWriteBack;
   this->mRegNew.out = out;
@@ -1272,7 +1286,7 @@ void Simulator::writeBack() {
   }
 
   this->verbosePrint(
-      std::format("WriteBack: {}\n", INSTNAME.at(this->mReg.inst)));
+      std::format("WriteBack: {}\n", this->mReg.rawAssemblyInstruction));
 
   if (this->mReg.enableWriteBack && this->mReg.destReg != REG_ZERO) {
     this->reg.at(mReg.destReg) = this->mReg.out;
