@@ -1216,57 +1216,46 @@ void Simulator::memoryAccess() {
       std::format("Memory Access: {}\n", this->eReg.rawAssemblyInstruction));
 
   if (enableWriteBack && destReg != REG_ZERO) {
-    if (dataForwarding) {  // w/ data forwarding
-      if (!this->executeWriteBack || this->executeWBReg != destReg) {
-        if (this->dRegNew.rs1 == destReg) {
-          this->dRegNew.op1 = out;
-          this->history.dataHazardCount++;
-          this->verbosePrint(std::format("  Forward Data {} to Decode op1\n",
-                                         REGISTER_NAME.at(destReg)));
-        }
-        if (this->dRegNew.rs2 == destReg) {
-          this->dRegNew.op2 = out;
-          this->history.dataHazardCount++;
-          this->verbosePrint(std::format("  Forward Data {} to Decode op2\n",
-                                         REGISTER_NAME.at(destReg)));
-        }
-        if (this->dRegNew.rs3 == destReg) {
-          this->dRegNew.op3 = out;
-          this->history.dataHazardCount++;
-          this->verbosePrint(std::format("  Forward Data {} to Decode op3\n",
-                                         REGISTER_NAME.at(destReg)));
-        }
+    if (!this->executeWriteBack || this->executeWBReg != destReg) {
+      if (this->dRegNew.rs1 == destReg) {
+        this->dRegNew.op1 = out;
+        this->history.dataHazardCount++;
+        this->verbosePrint(std::format("  Forward Data {} to Decode op1\n",
+                                       REGISTER_NAME.at(destReg)));
       }
+      if (this->dRegNew.rs2 == destReg) {
+        this->dRegNew.op2 = out;
+        this->history.dataHazardCount++;
+        this->verbosePrint(std::format("  Forward Data {} to Decode op2\n",
+                                       REGISTER_NAME.at(destReg)));
+      }
+      if (this->dRegNew.rs3 == destReg) {
+        this->dRegNew.op3 = out;
+        this->history.dataHazardCount++;
+        this->verbosePrint(std::format("  Forward Data {} to Decode op3\n",
+                                       REGISTER_NAME.at(destReg)));
+      }
+    }
 
-      // Corner case of forwarding mem load data to stalled decode reg
-      if (this->dReg.stall != 0U) {
-        if (this->dReg.rs1 == destReg) {
-          this->dReg.op1 = out;
-          this->history.dataHazardCount++;
-          this->verbosePrint(std::format("  Forward Data {} to Decode op1\n",
-                                         REGISTER_NAME.at(destReg)));
-        }
-        if (this->dReg.rs2 == destReg) {
-          this->dReg.op2 = out;
-          this->history.dataHazardCount++;
-          this->verbosePrint(std::format("  Forward Data {} to Decode op2\n",
-                                         REGISTER_NAME.at(destReg)));
-        }
-        if (this->dReg.rs3 == destReg) {
-          this->dReg.op3 = out;
-          this->history.dataHazardCount++;
-          this->verbosePrint(std::format("  Forward Data {} to Decode op3\n",
-                                         REGISTER_NAME.at(destReg)));
-        }
+    // Corner case of forwarding mem load data to stalled decode reg
+    if (this->dReg.stall != 0U) {
+      if (this->dReg.rs1 == destReg) {
+        this->dReg.op1 = out;
+        this->history.dataHazardCount++;
+        this->verbosePrint(std::format("  Forward Data {} to Decode op1\n",
+                                       REGISTER_NAME.at(destReg)));
       }
-    } else {  // w/o data forwarding
-      if (this->dRegNew.rs1 == destReg || this->dRegNew.rs2 == destReg ||
-          this->dRegNew.rs3 == destReg) {
-        // this->dRegNew.stall = 1;  // Insert a stall in the decode stage
-        // this->fRegNew.stall = 1;  // Insert a stall in the fetch stage
-        // this->history.memoryHazardCount++;
-        this->verbosePrint(
-            "Memory Hazard: Stall inserted in Decode and Fetch stages\n");
+      if (this->dReg.rs2 == destReg) {
+        this->dReg.op2 = out;
+        this->history.dataHazardCount++;
+        this->verbosePrint(std::format("  Forward Data {} to Decode op2\n",
+                                       REGISTER_NAME.at(destReg)));
+      }
+      if (this->dReg.rs3 == destReg) {
+        this->dReg.op3 = out;
+        this->history.dataHazardCount++;
+        this->verbosePrint(std::format("  Forward Data {} to Decode op3\n",
+                                       REGISTER_NAME.at(destReg)));
       }
     }
   }

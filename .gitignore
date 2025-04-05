@@ -1,7 +1,15 @@
 *.out
 .clangd
 .DS_Store
+*/.DS_Store
 build/
-cmake-build-*/
+cmake-build-debug/
 .idea/
 .vscode
+cacti/obj_opt
+cacti/cacti
+d4-7/
+results/
+results-without-data-forwarding/
+riscv-elf/
+*.txt
