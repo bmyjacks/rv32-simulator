@@ -228,7 +228,7 @@ class Simulator {
 
   void printInfo();
 
-  void printStatistics();
+  void printStatistics() const;
 
  private:
   struct FReg {
@@ -276,16 +276,14 @@ class Simulator {
     std::string rawAssemblyInstruction;
     uint32_t pc;
     RISCV::Instruction inst;
-    int32_t op1;
     int32_t op2;
-    bool writeReg;
+    bool enableWriteRegister;
     RISCV::RegId destReg;
     int32_t out;
-    bool writeMem;
-    bool readMem;
+    bool enableWriteMemory;
+    bool enableReadMemory;
     bool readSignExt;
     uint32_t memLen;
-    bool branch;
   } eReg, eRegNew;
 
   struct MReg {

@@ -108,7 +108,7 @@ void Simulator::initStack(const uint32_t& baseaddr, const uint32_t& maxSize) {
     }
 
     if (verbose) {
-      // this->printInfo();
+      this->printInfo();
     }
 
     if (this->isSingleStep) {
@@ -145,7 +145,7 @@ void Simulator::fetch() {
 }
 
 void Simulator::decode() {
-  if (this->fReg.bubble) {
+  if (this->fReg.bubble || this->fReg.inst == 0U) {
     if (verbose) {
       std::cout << "Decode: Bubble\n";
     }
@@ -758,68 +758,68 @@ void Simulator::execute() {
   bool predictedBranch = this->dReg.predictedBranch;
 
   uint32_t dRegPC = this->dReg.pc;
-  bool writeReg = false;
+  bool enableWriteRegister = false;
   const RegId destReg = this->dReg.dest;
   int32_t out = 0;
-  bool writeMem = false;
-  bool readMem = false;
+  bool enableWriteMemory = false;
+  bool enableReadMemory = false;
   bool readSignExt = false;
   uint32_t memLen = 0;
   bool branch = false;
 
   switch (inst) {
     case FMADD: {
-      writeReg = true;
+      enableWriteRegister = true;
       out = op1 * op2 + op3;
       this->history.cycleCount += 3;
       break;
     }
     case FMADDU: {
-      writeReg = true;
+      enableWriteRegister = true;
       out = static_cast<uint32_t>(op1) * static_cast<uint32_t>(op2) + op3;
       this->history.cycleCount += 3;
       break;
     }
     case FMSUB: {
-      writeReg = true;
+      enableWriteRegister = true;
       out = op1 * op2 - op3;
       this->history.cycleCount += 3;
       break;
     }
     case FMSUBU: {
-      writeReg = true;
+      enableWriteRegister = true;
       out = op1 * op2 - op3;
       this->history.cycleCount += 3;
       break;
     }
     case FNMADD: {
-      writeReg = true;
+      enableWriteRegister = true;
       out = -(op1 * op2) + op3;
       this->history.cycleCount += 3;
       break;
     }
     case FNMSUB: {
-      writeReg = true;
+      enableWriteRegister = true;
       out = -(op1 * op2) - op3;
       this->history.cycleCount += 3;
       break;
     }
     case LUI:
-      writeReg = true;
+      enableWriteRegister = true;
       out = offset << 12;
       break;
     case AUIPC:
-      writeReg = true;
+      enableWriteRegister = true;
       out = dRegPC + (offset << 12);
       break;
     case JAL:
-      writeReg = true;
+      enableWriteRegister = true;
       out = dRegPC + 4;
       dRegPC = dRegPC + op1;
       branch = true;
       break;
     case JALR:
-      writeReg = true;
+      enableWriteRegister = true;
       out = dRegPC + 4;
       dRegPC = (op1 + op2) & (~(uint32_t)1);
       branch = true;
@@ -861,160 +861,160 @@ void Simulator::execute() {
       }
       break;
     case LB:
-      readMem = true;
-      writeReg = true;
+      enableReadMemory = true;
+      enableWriteRegister = true;
       memLen = 1;
       out = op1 + offset;
       readSignExt = true;
       break;
     case LH:
-      readMem = true;
-      writeReg = true;
+      enableReadMemory = true;
+      enableWriteRegister = true;
       memLen = 2;
       out = op1 + offset;
       readSignExt = true;
       break;
     case LW:
-      readMem = true;
-      writeReg = true;
+      enableReadMemory = true;
+      enableWriteRegister = true;
       memLen = 4;
       out = op1 + offset;
       readSignExt = true;
       break;
     case LD:
-      readMem = true;
-      writeReg = true;
+      enableReadMemory = true;
+      enableWriteRegister = true;
       memLen = 8;
       out = op1 + offset;
       readSignExt = true;
       break;
     case LBU:
-      readMem = true;
-      writeReg = true;
+      enableReadMemory = true;
+      enableWriteRegister = true;
       memLen = 1;
       out = op1 + offset;
       break;
     case LHU:
-      readMem = true;
-      writeReg = true;
+      enableReadMemory = true;
+      enableWriteRegister = true;
       memLen = 2;
       out = op1 + offset;
       break;
     case LWU:
-      readMem = true;
-      writeReg = true;
+      enableReadMemory = true;
+      enableWriteRegister = true;
       memLen = 4;
       out = op1 + offset;
       break;
     case SB:
-      writeMem = true;
+      enableWriteMemory = true;
       memLen = 1;
       out = op1 + offset;
       op2 = op2 & 0xFF;
       break;
     case SH:
-      writeMem = true;
+      enableWriteMemory = true;
       memLen = 2;
       out = op1 + offset;
       op2 = op2 & 0xFFFF;
       break;
     case SW:
-      writeMem = true;
+      enableWriteMemory = true;
       memLen = 4;
       out = op1 + offset;
       op2 = op2 & 0xFFFFFFFF;
       break;
     case SD:
-      writeMem = true;
+      enableWriteMemory = true;
       memLen = 8;
       out = op1 + offset;
       break;
     case ADDI:
     case ADD:
-      writeReg = true;
+      enableWriteRegister = true;
       out = op1 + op2;
       break;
     case ADDIW:
     case ADDW:
-      writeReg = true;
+      enableWriteRegister = true;
       out = (int32_t)((int32_t)op1 + (int32_t)op2);
       break;
     case SUB:
-      writeReg = true;
+      enableWriteRegister = true;
       out = op1 - op2;
       break;
     case SUBW:
-      writeReg = true;
+      enableWriteRegister = true;
       out = (int32_t)((int32_t)op1 - (int32_t)op2);
       break;
     case MUL:
-      writeReg = true;
+      enableWriteRegister = true;
       out = op1 * op2;
       this->history.cycleCount += 3;
       break;
     case DIV:
-      writeReg = true;
+      enableWriteRegister = true;
       out = op1 / op2;
       break;
     case SLTI:
     case SLT:
-      writeReg = true;
+      enableWriteRegister = true;
       out = op1 < op2 ? 1 : 0;
       break;
     case SLTIU:
     case SLTU:
-      writeReg = true;
+      enableWriteRegister = true;
       out = (uint32_t)op1 < (uint32_t)op2 ? 1 : 0;
       break;
     case XORI:
     case XOR:
-      writeReg = true;
+      enableWriteRegister = true;
       out = op1 ^ op2;
       break;
     case ORI:
     case OR:
-      writeReg = true;
+      enableWriteRegister = true;
       out = op1 | op2;
       break;
     case ANDI:
     case AND:
-      writeReg = true;
+      enableWriteRegister = true;
       out = op1 & op2;
       break;
     case SLLI:
     case SLL:
-      writeReg = true;
+      enableWriteRegister = true;
       out = op1 << op2;
       break;
     case SLLIW:
     case SLLW:
-      writeReg = true;
+      enableWriteRegister = true;
       out = int32_t(int32_t(op1 << op2));
       break;
       break;
     case SRLI:
     case SRL:
-      writeReg = true;
+      enableWriteRegister = true;
       out = (uint32_t)op1 >> (uint32_t)op2;
       break;
     case SRLIW:
     case SRLW:
-      writeReg = true;
+      enableWriteRegister = true;
       out = uint32_t(uint32_t((uint32_t)op1 >> (uint32_t)op2));
       break;
     case SRAI:
     case SRA:
-      writeReg = true;
+      enableWriteRegister = true;
       out = op1 >> op2;
       break;
     case SRAW:
     case SRAIW:
-      writeReg = true;
+      enableWriteRegister = true;
       out = int32_t(int32_t((int32_t)op1 >> (int32_t)op2));
       break;
     case ECALL:
       out = handleSystemCall(op1, op2);
-      writeReg = true;
+      enableWriteRegister = true;
       break;
     default:
       this->panic("Unknown instruction type %d\n", inst);
@@ -1024,6 +1024,8 @@ void Simulator::execute() {
   if (isBranch(inst)) {
     if (predictedBranch == branch) {
       this->history.predictedBranch++;
+      this->verbosePrint(std::format(
+          "Branch Predicted: PC = 0x{:x} -> 0x{:x}\n", dRegPC, this->pc));
     } else {
       // Control Hazard Here
       this->pc = this->dReg.anotherPC;
@@ -1052,23 +1054,19 @@ void Simulator::execute() {
       if (dataForwarding) {
         this->fRegNew.stall = 2;
         this->dRegNew.stall = 2;
-        this->history.cycleCount--;  // WHY???
-        this->history.memoryHazardCount++;
-        this->verbosePrint(std::format(
-            "EXE stage detected data hazard (w/ data forwarding)\n"));
+        this->history.cycleCount--;
       } else {
-        this->fRegNew.stall = 3;
-        this->dRegNew.stall = 3;
-        this->history.cycleCount--;  // WHY???
-        this->history.memoryHazardCount++;
-        this->verbosePrint(std::format(
-            "EXE stage detected data hazard (w/o data forwarding)\n"));
+        this->fReg.stall = 2;
+        this->dReg.stall = 2;
+        this->dReg.bubble = true;
       }
+      this->history.memoryHazardCount++;
+      this->verbosePrint("EXE stage detected memory hazard\n");
     }
   }
 
   // Check for data hazard and forward data
-  if (writeReg && destReg != REG_ZERO && !isReadMem(inst)) {
+  if (enableWriteRegister && destReg != REG_ZERO && !isReadMem(inst)) {
     if (dataForwarding) {
       if (this->dRegNew.rs1 == destReg) {
         this->dRegNew.op1 = out;
@@ -1117,16 +1115,14 @@ void Simulator::execute() {
   this->eRegNew.pc = dRegPC;
   this->eRegNew.inst = inst;
   this->eRegNew.rawAssemblyInstruction = this->dReg.rawAssemblyInstruction;
-  this->eRegNew.op1 = op1;  // for jalr
-  this->eRegNew.op2 = op2;  // for store
-  this->eRegNew.writeReg = writeReg;
+  this->eRegNew.op2 = op2;
+  this->eRegNew.enableWriteRegister = enableWriteRegister;
   this->eRegNew.destReg = destReg;
   this->eRegNew.out = out;
-  this->eRegNew.writeMem = writeMem;
-  this->eRegNew.readMem = readMem;
+  this->eRegNew.enableWriteMemory = enableWriteMemory;
+  this->eRegNew.enableReadMemory = enableReadMemory;
   this->eRegNew.readSignExt = readSignExt;
   this->eRegNew.memLen = memLen;
-  this->eRegNew.branch = branch;
 }
 
 void Simulator::memoryAccess() {
@@ -1137,20 +1133,19 @@ void Simulator::memoryAccess() {
   }
 
   const Instruction inst = this->eReg.inst;
-  const bool enableWriteBack = this->eReg.writeReg;
+  const bool enableWriteBack2Register = this->eReg.enableWriteRegister;
   const RegId destReg = this->eReg.destReg;
-  // const int32_t op1 = this->eReg.op1;  // for jalr
   const int32_t op2 = this->eReg.op2;  // for store
   int32_t out = this->eReg.out;
-  const bool writeMem = this->eReg.writeMem;
-  const bool readMem = this->eReg.readMem;
+  const bool enableWriteMemory = this->eReg.enableWriteMemory;
+  const bool enableReadMemory = this->eReg.enableReadMemory;
   const bool readSignExt = this->eReg.readSignExt;
   const uint32_t memLen = this->eReg.memLen;
 
   bool good = true;
   uint32_t memoryOperationCycleCount = 0;
 
-  if (writeMem) {
+  if (enableWriteMemory) {
     switch (memLen) {
       case 1: {
         good = this->memory->setByte(out, op2, &memoryOperationCycleCount);
@@ -1174,7 +1169,7 @@ void Simulator::memoryAccess() {
     std::cerr << "Invalid Mem Access!\n";
   }
 
-  if (readMem) {
+  if (enableReadMemory) {
     switch (memLen) {
       case 1: {
         if (readSignExt) {
@@ -1215,47 +1210,60 @@ void Simulator::memoryAccess() {
   this->verbosePrint(
       std::format("Memory Access: {}\n", this->eReg.rawAssemblyInstruction));
 
-  if (enableWriteBack && destReg != REG_ZERO) {
-    if (!this->executeWriteBack || this->executeWBReg != destReg) {
-      if (this->dRegNew.rs1 == destReg) {
-        this->dRegNew.op1 = out;
-        this->history.dataHazardCount++;
-        this->verbosePrint(std::format("  Forward Data {} to Decode op1\n",
-                                       REGISTER_NAME.at(destReg)));
+  if (enableWriteBack2Register && destReg != REG_ZERO) {
+    if (dataForwarding) {
+      if (!this->executeWriteBack || this->executeWBReg != destReg) {
+        if (this->dRegNew.rs1 == destReg) {
+          this->dRegNew.op1 = out;
+          this->history.dataHazardCount++;
+          this->verbosePrint(std::format("  Forward Data {} to Decode op1\n",
+                                         REGISTER_NAME.at(destReg)));
+        }
+        if (this->dRegNew.rs2 == destReg) {
+          this->dRegNew.op2 = out;
+          this->history.dataHazardCount++;
+          this->verbosePrint(std::format("  Forward Data {} to Decode op2\n",
+                                         REGISTER_NAME.at(destReg)));
+        }
+        if (this->dRegNew.rs3 == destReg) {
+          this->dRegNew.op3 = out;
+          this->history.dataHazardCount++;
+          this->verbosePrint(std::format("  Forward Data {} to Decode op3\n",
+                                         REGISTER_NAME.at(destReg)));
+        }
       }
-      if (this->dRegNew.rs2 == destReg) {
-        this->dRegNew.op2 = out;
-        this->history.dataHazardCount++;
-        this->verbosePrint(std::format("  Forward Data {} to Decode op2\n",
-                                       REGISTER_NAME.at(destReg)));
-      }
-      if (this->dRegNew.rs3 == destReg) {
-        this->dRegNew.op3 = out;
-        this->history.dataHazardCount++;
-        this->verbosePrint(std::format("  Forward Data {} to Decode op3\n",
-                                       REGISTER_NAME.at(destReg)));
-      }
-    }
 
-    // Corner case of forwarding mem load data to stalled decode reg
-    if (this->dReg.stall != 0U) {
-      if (this->dReg.rs1 == destReg) {
-        this->dReg.op1 = out;
-        this->history.dataHazardCount++;
-        this->verbosePrint(std::format("  Forward Data {} to Decode op1\n",
-                                       REGISTER_NAME.at(destReg)));
+      // Corner case of forwarding mem load data to stalled decode reg
+      if (this->dReg.stall != 0U) {
+        if (this->dReg.rs1 == destReg) {
+          this->dReg.op1 = out;
+          this->history.dataHazardCount++;
+          this->verbosePrint(std::format("  Forward Data {} to Decode op1\n",
+                                         REGISTER_NAME.at(destReg)));
+        }
+        if (this->dReg.rs2 == destReg) {
+          this->dReg.op2 = out;
+          this->history.dataHazardCount++;
+          this->verbosePrint(std::format("  Forward Data {} to Decode op2\n",
+                                         REGISTER_NAME.at(destReg)));
+        }
+        if (this->dReg.rs3 == destReg) {
+          this->dReg.op3 = out;
+          this->history.dataHazardCount++;
+          this->verbosePrint(std::format("  Forward Data {} to Decode op3\n",
+                                         REGISTER_NAME.at(destReg)));
+        }
       }
-      if (this->dReg.rs2 == destReg) {
-        this->dReg.op2 = out;
+    } else {
+      if (!this->dRegNew.bubble &&
+          (this->dRegNew.rs1 == destReg || this->dRegNew.rs2 == destReg ||
+           this->dRegNew.rs3 == destReg)) {
+        this->verbosePrint(
+            "MEM stage detected data hazard (w/o data forwarding)\n");
+        this->fReg.stall = 1;
+        this->dReg.stall = 1;
+        this->dReg.bubble = true;
         this->history.dataHazardCount++;
-        this->verbosePrint(std::format("  Forward Data {} to Decode op2\n",
-                                       REGISTER_NAME.at(destReg)));
-      }
-      if (this->dReg.rs3 == destReg) {
-        this->dReg.op3 = out;
-        this->history.dataHazardCount++;
-        this->verbosePrint(std::format("  Forward Data {} to Decode op3\n",
-                                       REGISTER_NAME.at(destReg)));
       }
     }
   }
@@ -1264,7 +1272,7 @@ void Simulator::memoryAccess() {
   this->mRegNew.inst = inst;
   this->mRegNew.rawAssemblyInstruction = this->eReg.rawAssemblyInstruction;
   this->mRegNew.destReg = destReg;
-  this->mRegNew.enableWriteBack = enableWriteBack;
+  this->mRegNew.enableWriteBack = enableWriteBack2Register;
   this->mRegNew.out = out;
 }
 
@@ -1333,7 +1341,7 @@ void Simulator::printInfo() {
   printf("-----------------------------------\n");
 }
 
-void Simulator::printStatistics() {
+void Simulator::printStatistics() const {
   printf("------------ STATISTICS -----------\n");
   printf("Number of Instructions: %u\n", this->history.instructionCount);
   printf("Number of Cycles: %u\n", this->history.cycleCount);
