@@ -211,7 +211,7 @@ class Simulator {
   bool shouldDumpHistory;
   bool dataForwarding;
   uint32_t pc;
-  std::array<int32_t, RISCV::REGISTERS_COUNT> reg;
+  std::array<uint32_t, RISCV::REGISTERS_COUNT> reg;
   uint32_t stackBase;
   uint32_t maximumStackSize;
   MemoryManager* memory;
@@ -224,9 +224,9 @@ class Simulator {
 
   [[noreturn]] void simulate();
 
-  void dumpHistory();
+  void dumpHistory() const;
 
-  void printInfo();
+  void printInfo() const;
 
   void printStatistics() const;
 
@@ -330,7 +330,7 @@ class Simulator {
 
   auto handleSystemCall(int32_t op1, int32_t op2) -> int32_t;
 
-  auto getRegInfoStr() -> std::string;
+  auto getRegInfoStr() const -> std::string;
   void panic(const char* format, ...);
   void verbosePrint(const std::string& str) const;
 };

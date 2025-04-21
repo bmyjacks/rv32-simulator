@@ -788,7 +788,7 @@ void Simulator::execute() {
     }
     case FMSUBU: {
       enableWriteRegister = true;
-      out = op1 * op2 - op3;
+      out = static_cast<uint32_t>(op1) * static_cast<uint32_t>(op2) - op3;
       this->history.cycleCount += 3;
       break;
     }
@@ -1331,15 +1331,7 @@ int32_t Simulator::handleSystemCall(int32_t op1, int32_t op2) {
   return op1;
 }
 
-void Simulator::printInfo() {
-  printf("------------ CPU STATE ------------\n");
-  printf("PC: 0x%llx\n", this->pc);
-  for (uint32_t i = 0; i < 32; ++i) {
-    printf("%s: 0x%.8llx(%lld) ", REGISTER_NAME[i], this->reg[i], this->reg[i]);
-    if (i % 4 == 3) printf("\n");
-  }
-  printf("-----------------------------------\n");
-}
+void Simulator::printInfo() const { std::cout << this->getRegInfoStr(); }
 
 void Simulator::printStatistics() const {
   printf("------------ STATISTICS -----------\n");
@@ -1358,27 +1350,24 @@ void Simulator::printStatistics() const {
   // this->memory->printStatistics();
 }
 
-std::string Simulator::getRegInfoStr() {
-  std::string str;
-  char buf[65536];
+auto Simulator::getRegInfoStr() const -> std::string {
+  std::ostringstream oss;
 
-  str += "------------ CPU STATE ------------\n";
-  sprintf(buf, "PC: 0x%llx\n", this->pc);
-  str += buf;
-  for (uint32_t i = 0; i < 32; ++i) {
-    sprintf(buf, "%s: 0x%.8llx(%lld) ", REGISTER_NAME[i], this->reg[i],
-            this->reg[i]);
-    str += buf;
+  oss << "------------ CPU STATE ------------\n";
+  oss << "PC: 0x" << std::hex << this->pc << "\n";
+  for (uint32_t i = 0; i < REGISTERS_COUNT; ++i) {
+    oss << REGISTER_NAME.at(i) << ": 0x" << std::hex << this->reg.at(i) << "("
+        << std::dec << this->reg.at(i) << ") ";
     if (i % 4 == 3) {
-      str += "\n";
+      oss << "\n";
     }
   }
-  str += "-----------------------------------\n";
+  oss << "-----------------------------------\n";
 
-  return str;
+  return oss.str();
 }
 
-void Simulator::dumpHistory() {
+void Simulator::dumpHistory() const {
   std::ofstream ofile("dump.txt");
   ofile << "================== Excecution History =================="
         << std::endl;
