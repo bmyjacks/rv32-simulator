@@ -5,6 +5,7 @@
 
 #include "Simulator.h"
 
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
